@@ -402,7 +402,6 @@ function RecipeForm({initial,onBack,onSave,onSaveLabel='Guardar'}){
       </div>
     </div>
   )
-}
 export default function App(){
   const[screen,setScreen]=useState('list')
   const[recipes,setRecipes]=useState([])
