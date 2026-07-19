@@ -231,19 +231,39 @@ function RecipeForm({initial,onBack,onSave,onSaveLabel='Guardar'}){
   const fileRef=useRef()
   const upd=(k,v)=>setF(p=>({...p,[k]:v}))
   const tog=(k,v)=>setF(p=>({...p,[k]:p[k].includes(v)?p[k].filter(x=>x!==v):[...p[k],v]}))
+  const compressImage=async(file)=>{
+    return new Promise((resolve)=>{
+      const img=new Image();const url=URL.createObjectURL(file);
+      img.onload=()=>{
+        const canvas=document.createElement('canvas');
+        const MAX=1200;let w=img.width,h=img.height;
+        if(w>MAX){h=Math.round(h*MAX/w);w=MAX;}
+        if(h>MAX){w=Math.round(w*MAX/h);h=MAX;}
+        canvas.width=w;canvas.height=h;
+        canvas.getContext('2d').drawImage(img,0,0,w,h);
+        URL.revokeObjectURL(url);
+        resolve(canvas.toDataURL('image/jpeg',0.7).split(',')[1]);
+      };img.src=url;
+    });
+  }
   const handlePhotoExtract=async(ev)=>{
     const file=ev.target.files?.[0];if(!file)return
     setPhotoFile(file);setPhotoPreview(URL.createObjectURL(file))
     setFlow('ext');setErr('')
     try{
-      const b64=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(',')[1]);r.onerror=rej;r.readAsDataURL(file)})
-      const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:1200,system:`Extrae información de receta desde imagen. Responde SOLO JSON válido sin markdown:\n{"title":"","description":"","ingredients":[{"n":"","q":"","u":""}],"steps":[""],"servings":2,"prep_time":0,"cook_time":0,"source_author":"","moment_tags":[],"category_tags":[],"health_tag":"balanceado"}\nmoment_tags: desayuno|comida|cena|botana. category_tags: plato fuerte|verdura|sopa|acompañamiento|fruta|postre. health_tag: sano|balanceado|indulgente. Omite campos inciertos. Nunca inventes.`,messages:[{role:'user',content:[{type:'image',source:{type:'base64',media_type:file.type,data:b64}},{type:'text',text:'Extrae la receta.'}]}]})})
-      const data=await res.json()
-      const p=JSON.parse(data.content[0].text)
+      const b64=await compressImage(file)
+      const res=await fetch('/api/extract',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({image:b64,mimeType:'image/jpeg'})
+      })
+      if(!res.ok)throw new Error(await res.text())
+      const p=await res.json()
+      if(p.error)throw new Error(p.error)
       setF(prev=>({...prev,...p,photo_url:prev.photo_url,source_type:prev.source_type,audience_tags:['todos'],health_tag:p.health_tag||'balanceado',moment_tags:p.moment_tags||[],category_tags:p.category_tags||[],ingredients:p.ingredients?.length?p.ingredients:[{n:'',q:'',u:''}],steps:p.steps?.length?p.steps:['']}))
-    }catch(e){setErr('No se extrajo automáticamente. Llénala tú.')}
+    }catch(e){setErr('No se extrajo automáticamente. Llénala tú. ('+e.message+')')}
     setFlow('form')
-  }
+  }}
   const handleManualPhoto=(ev)=>{const file=ev.target.files?.[0];if(!file)return;setPhotoFile(file);setPhotoPreview(URL.createObjectURL(file))}
   const updI=(i,k,v)=>setF(p=>{const a=[...p.ingredients];a[i]={...a[i],[k]:v};return{...p,ingredients:a}})
   const addI=()=>setF(p=>({...p,ingredients:[...p.ingredients,{n:'',q:'',u:''}]}))
