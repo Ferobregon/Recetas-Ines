@@ -269,7 +269,7 @@ function RecipeForm({initial,onBack,onSave,onSaveLabel='Guardar'}){
       setF(prev=>({...prev,...p,photo_url:prev.photo_url,source_type:prev.source_type,audience_tags:['todos'],health_tag:p.health_tag||'balanceado',moment_tags:p.moment_tags||[],category_tags:p.category_tags||[],ingredients:p.ingredients?.length?p.ingredients:[{n:'',q:'',u:''}],steps:p.steps?.length?p.steps:['']}))
     }catch(e){setErr('Error al extraer: '+(e.message||'intenta de nuevo'))}
     setFlow('form')
-  }}
+  }
   const handleManualPhoto=(ev)=>{const file=ev.target.files?.[0];if(!file)return;setPhotoFile(file);setPhotoPreview(URL.createObjectURL(file))}
   const updI=(i,k,v)=>setF(p=>{const a=[...p.ingredients];a[i]={...a[i],[k]:v};return{...p,ingredients:a}})
   const addI=()=>setF(p=>({...p,ingredients:[...p.ingredients,{n:'',q:'',u:''}]}))
@@ -402,6 +402,7 @@ function RecipeForm({initial,onBack,onSave,onSaveLabel='Guardar'}){
       </div>
     </div>
   )
+}
 export default function App(){
   const[screen,setScreen]=useState('list')
   const[recipes,setRecipes]=useState([])
