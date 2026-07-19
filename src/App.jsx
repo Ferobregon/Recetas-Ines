@@ -252,7 +252,7 @@ function RecipeForm({initial,onBack,onSave,onSaveLabel='Guardar'}){
     setFlow('ext');setErr('')
     try{
       const b64=await compressImage(file)
-      const res=await fetch('/api/extract',{
+      const res=await fetch('https://bhhrxotdiwdtltyitnyk.supabase.co/functions/v1/extract-recipe',{
         method:'POST',
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({image:b64,mimeType:'image/jpeg'})
