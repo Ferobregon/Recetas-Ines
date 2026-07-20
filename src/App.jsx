@@ -509,7 +509,7 @@ function ListScreen({ recipes, loading, onAdd, onSel, filters, setFilters, searc
     if (filters.at?.length && !filters.at.some(t => r.audience_tags?.includes(t))) return false
     if (filters.ht?.length && !filters.ht.includes(r.health_tag)) return false
     return true
-  }).sort((a, b) => sort === 'rating' ? (b.rating || 0) - (a.rating || 0) : 0)
+  }).sort((a, b) => sort === 'rating' ? (b.rating || 0) - (a.rating || 0) : sort === 'alpha' ? a.title.localeCompare(b.title, 'es') : 0)
 
   return (
     <div style={S.screen}>
@@ -528,8 +528,8 @@ function ListScreen({ recipes, loading, onAdd, onSel, filters, setFilters, searc
           <Icon name="filter" size={13} color={active.length ? C.greenDark : C.textSec} />
           Filtros{active.length ? ` · ${active.length}` : ''}
         </button>
-        <button onClick={() => setSort(s => s === 'rating' ? 'new' : 'rating')} style={{ padding: '7px 14px', borderRadius: 999, fontSize: 13, fontWeight: 600, cursor: 'pointer', flexShrink: 0, border: sort === 'rating' ? 'none' : `0.5px solid ${C.border}`, background: sort === 'rating' ? C.amberBg : C.surface, color: sort === 'rating' ? C.amber : C.textSec, display: 'flex', alignItems: 'center', gap: 4 }}>
-          ★ {sort === 'rating' ? 'Mejor calificadas' : 'Calificación'}
+        <button onClick={() => setSort(s => s === 'alpha' ? 'rating' : s === 'rating' ? 'new' : 'alpha')} style={{ padding: '7px 14px', borderRadius: 999, fontSize: 13, fontWeight: 600, cursor: 'pointer', flexShrink: 0, border: sort !== 'new' ? 'none' : `0.5px solid ${C.border}`, background: sort === 'rating' ? C.amberBg : sort === 'alpha' ? C.greenBg : C.surface, color: sort === 'rating' ? C.amber : sort === 'alpha' ? C.greenDark : C.textSec, display: 'flex', alignItems: 'center', gap: 4 }}>
+          {sort === 'rating' ? '★ Mejor calificadas' : sort === 'alpha' ? 'A → Z' : '🕐 Recientes'}
         </button>
         {active.map((v, i) => <Pill key={i} label={v} small bg={C.greenBg} tx={C.greenDark} onX={() => setFilters(f => { const n = { ...f }; for (const k of Object.keys(n)) n[k] = n[k].filter(x => x !== v); return n })} />)}
       </div>
@@ -859,7 +859,7 @@ export default function App() {
   const [sel, setSel] = useState(null)
   const [filters, setFilters] = useState({ mt: [], ct: [], at: [], ht: [] })
   const [search, setSearch] = useState('')
-  const [sort, setSort] = useState('new')
+  const [sort, setSort] = useState('alpha')
 
   useEffect(() => { fetchRecipes().then(setRecipes).catch(console.error).finally(() => setLoading(false)) }, [])
 
