@@ -103,3 +103,25 @@ export async function fetchRecentMealHistory(days = 14) {
   if (error) throw error
   return data || []
 }
+
+export async function fetchPantryItems() {
+  const { data, error } = await supabase.from('pantry_items').select('*').order('added_at', { ascending: false })
+  if (error) throw error
+  return data || []
+}
+
+export async function addPantryItem(name) {
+  const { data, error } = await supabase.from('pantry_items').insert([{ name: name.trim() }]).select().single()
+  if (error) throw error
+  return data
+}
+
+export async function removePantryItem(id) {
+  const { error } = await supabase.from('pantry_items').delete().eq('id', id)
+  if (error) throw error
+}
+
+export async function clearPantryItems() {
+  const { error } = await supabase.from('pantry_items').delete().neq('id', '00000000-0000-0000-0000-000000000000')
+  if (error) throw error
+}
