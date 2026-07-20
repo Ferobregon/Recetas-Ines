@@ -54,49 +54,37 @@ function fmtDayNum(dateStr) { return new Date(dateStr + 'T12:00:00').getDate() }
 // ── SUGGESTION ALGORITHM ──────────────────────────────────────────────────
 
 function suggestMenuSlots(recipes, history, days, existingSlots) {
-  // recentIds: from meal_history — prefer not repeating what was eaten in last 2 weeks
+  // No repetir la misma receta en la misma semana
+  const usedThisWeek = new Set(existingSlots.map(s => s.recipe_id).filter(Boolean))
+  // Preferir recetas no comidas recientemente (últimas 2 semanas)
   const recentIds = new Set(history.map(h => h.recipe_id).filter(Boolean))
   let indulgenteCount = existingSlots.filter(s => recipes.find(r => r.id === s.recipe_id)?.health_tag === 'indulgente').length
   const newSlots = []
 
   for (const date of days) {
-    // usedToday: block reuse WITHIN the same day only (allows same recipe on different days)
-    const usedToday = new Set(
-      [...existingSlots, ...newSlots].filter(s => s.date === date).map(s => s.recipe_id).filter(Boolean)
-    )
-
     for (const mealType of ['desayuno', 'comida', 'cena']) {
-      const alreadyInExisting = existingSlots.filter(s => s.date === date && s.meal_type === mealType).length
-      const alreadyInNew = newSlots.filter(s => s.date === date && s.meal_type === mealType).length
-      const totalSoFar = alreadyInExisting + alreadyInNew
-      const target = mealType === 'comida' ? 2 : 1
-      const needed = target - totalSoFar
-      if (needed <= 0) continue
+      // Máximo 1 receta por slot en sugerencia automática
+      const alreadyFilled = [...existingSlots, ...newSlots].some(s => s.date === date && s.meal_type === mealType)
+      if (alreadyFilled) continue
 
-      for (let n = 0; n < needed; n++) {
-        const catPref = mealType === 'comida' && (totalSoFar + n) === 0 ? 'plato fuerte'
-          : mealType === 'comida' && (totalSoFar + n) === 1 ? 'verdura' : null
+      let pool = recipes.filter(r => r.moment_tags?.includes(mealType) && !usedThisWeek.has(r.id))
+      const notRecent = pool.filter(r => !recentIds.has(r.id))
+      if (notRecent.length >= 1) pool = notRecent
+      if (indulgenteCount >= 3) { const h = pool.filter(r => r.health_tag !== 'indulgente'); if (h.length > 0) pool = h }
+      // Si no hay receta disponible para este slot, saltar (no detener el loop)
+      if (pool.length === 0) continue
 
-        let pool = recipes.filter(r => r.moment_tags?.includes(mealType) && !usedToday.has(r.id))
-        if (catPref) { const cp = pool.filter(r => r.category_tags?.includes(catPref)); if (cp.length > 0) pool = cp }
-        // Prefer not recently eaten, but don't block entirely if that leaves nothing
-        const notRecent = pool.filter(r => !recentIds.has(r.id))
-        if (notRecent.length >= 1) pool = notRecent
-        if (indulgenteCount >= 3) { const h = pool.filter(r => r.health_tag !== 'indulgente'); if (h.length > 0) pool = h }
-        if (pool.length === 0) break
+      pool.sort((a, b) => (b.rating || 0) - (a.rating || 0))
+      const top = pool.slice(0, 6)
+      const weights = top.map((r, i) => Math.max(1, ((r.rating || 3) * 4) - i * 2))
+      const total = weights.reduce((a, b) => a + b, 0)
+      let rand = Math.random() * total
+      let picked = top[0]
+      for (let i = 0; i < top.length; i++) { rand -= weights[i]; if (rand <= 0) { picked = top[i]; break } }
 
-        pool.sort((a, b) => (b.rating || 0) - (a.rating || 0))
-        const top = pool.slice(0, 6)
-        const weights = top.map((r, i) => Math.max(1, ((r.rating || 3) * 4) - i * 2))
-        const total = weights.reduce((a, b) => a + b, 0)
-        let rand = Math.random() * total
-        let picked = top[0]
-        for (let i = 0; i < top.length; i++) { rand -= weights[i]; if (rand <= 0) { picked = top[i]; break } }
-
-        newSlots.push({ date, meal_type: mealType, recipe_id: picked.id, slot_order: totalSoFar + n })
-        usedToday.add(picked.id)
-        if (picked.health_tag === 'indulgente') indulgenteCount++
-      }
+      newSlots.push({ date, meal_type: mealType, recipe_id: picked.id, slot_order: 0 })
+      usedThisWeek.add(picked.id)
+      if (picked.health_tag === 'indulgente') indulgenteCount++
     }
   }
   return newSlots
