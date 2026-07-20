@@ -125,3 +125,9 @@ export async function clearPantryItems() {
   const { error } = await supabase.from('pantry_items').delete().neq('id', '00000000-0000-0000-0000-000000000000')
   if (error) throw error
 }
+
+export async function updateDayServings(menu_id, date, servings) {
+  const { error } = await supabase
+    .from('menu_slots').update({ servings }).eq('menu_id', menu_id).eq('date', date)
+  if (error) throw error
+}
