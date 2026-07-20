@@ -1,5 +1,6 @@
 import{useState,useEffect,useRef}from'react'
 import{uploadPhoto,fetchRecipes,insertRecipe,updateRecipe,deleteRecipe}from'./supabase.js'
+import{useRegisterSW}from'virtual:pwa-register/react'
 const C={bg:'#F5F0E8',surface:'#FFFDF9',border:'#E8DED0',green:'#4A7C59',greenBg:'#EDF4EF',greenDark:'#2D5238',amber:'#B8763A',amberBg:'#FDF4E8',text:'#2C2416',textSec:'#7A6E5F',textMuted:'#B0A090',danger:'#C0392B'}
 const MT={desayuno:{bg:'#FEF8ED',tx:'#9A6B2A',ac:'#D4943A'},comida:{bg:'#EDF4EF',tx:'#2D5238',ac:'#4A7C59'},cena:{bg:'#F0EDF8',tx:'#4A3A7A',ac:'#7B6BBD'},botana:{bg:'#FDF0EC',tx:'#8A3020',ac:'#C05A40'}}
 const HT={sano:{bg:'#EDF4EF',tx:'#2D5238'},balanceado:{bg:'#EDF0F8',tx:'#2D3A6A'},indulgente:{bg:'#FEF8ED',tx:'#8A5A1A'}}
@@ -408,6 +409,7 @@ function RecipeForm({initial,onBack,onSave,onSaveLabel='Guardar'}){
   )
 }
 export default function App(){
+  const{needRefresh:[needRefresh],updateServiceWorker}=useRegisterSW()
   const[screen,setScreen]=useState('list')
   const[recipes,setRecipes]=useState([])
   const[loading,setLoading]=useState(true)
@@ -421,6 +423,12 @@ export default function App(){
   const handleDelete=async()=>{await deleteRecipe(sel.id);setRecipes(p=>p.filter(r=>r.id!==sel.id));go('list')}
   return(
     <div style={S.app}>
+      {needRefresh&&(
+        <div style={{position:'fixed',bottom:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:430,background:C.green,color:'#fff',padding:'14px 20px',display:'flex',justifyContent:'space-between',alignItems:'center',zIndex:100,boxShadow:'0 -2px 12px rgba(0,0,0,.15)'}}>
+          <span style={{fontSize:14,fontWeight:500}}>Nueva versión disponible</span>
+          <button onClick={()=>updateServiceWorker(true)} style={{background:'rgba(255,255,255,.2)',border:'none',color:'#fff',borderRadius:8,padding:'6px 14px',fontSize:14,fontWeight:600,cursor:'pointer'}}>Actualizar</button>
+        </div>
+      )}
       {screen==='list'&&<ListScreen recipes={recipes} loading={loading} onAdd={()=>go('add')} onSel={r=>go('detail',r)} filters={filters} setFilters={setFilters} search={search} setSearch={setSearch} onFilter={()=>go('filter')}/>}
       {screen==='detail'&&sel&&<DetailScreen r={sel} onBack={()=>go('list')} onEdit={()=>go('edit',sel)} onDelete={handleDelete}/>}
       {screen==='add'&&<RecipeForm onBack={()=>go('list')} onSave={handleSave}/>}
