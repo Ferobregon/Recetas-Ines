@@ -21,16 +21,27 @@ export async function fetchRecipes() {
   return data
 }
 
+function sanitize(r) {
+  const int = (v, d = 0) => (v === '' || v == null) ? d : (Number(v) || d)
+  return {
+    ...r,
+    prep_time:  int(r.prep_time,  null),
+    cook_time:  int(r.cook_time,  null),
+    servings:   int(r.servings,   2),
+    times_made: int(r.times_made, 0),
+  }
+}
+
 export async function insertRecipe(recipe) {
   const { data, error } = await supabase
-    .from('recipes').insert([recipe]).select().single()
+    .from('recipes').insert([sanitize(recipe)]).select().single()
   if (error) throw error
   return data
 }
 
 export async function updateRecipe(id, updates) {
   const { data, error } = await supabase
-    .from('recipes').update({ ...updates, updated_at: new Date().toISOString() })
+    .from('recipes').update({ ...sanitize(updates), updated_at: new Date().toISOString() })
     .eq('id', id).select().single()
   if (error) throw error
   return data
