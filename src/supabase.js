@@ -59,3 +59,47 @@ export async function updateRating(id, rating) {
   if (error) throw error
   return data
 }
+
+// ── PLANNER ──────────────────────────────────────────────────────────────
+
+export async function fetchOrCreateWeeklyMenu(start_date, end_date, servings = 2) {
+  const { data: existing, error: findErr } = await supabase
+    .from('weekly_menus').select('*').eq('start_date', start_date).eq('end_date', end_date).maybeSingle()
+  if (findErr) throw findErr
+  if (existing) return existing
+  const { data, error } = await supabase
+    .from('weekly_menus').insert([{ start_date, end_date, servings }]).select().single()
+  if (error) throw error
+  return data
+}
+
+export async function fetchMenuSlots(menu_id) {
+  const { data, error } = await supabase
+    .from('menu_slots').select('*').eq('menu_id', menu_id)
+    .order('date').order('slot_order')
+  if (error) throw error
+  return data || []
+}
+
+export async function addMenuSlot(slot) {
+  const { data, error } = await supabase
+    .from('menu_slots').insert([slot]).select().single()
+  if (error) throw error
+  return data
+}
+
+export async function removeMenuSlot(id) {
+  const { error } = await supabase.from('menu_slots').delete().eq('id', id)
+  if (error) throw error
+}
+
+export async function fetchRecentMealHistory(days = 14) {
+  const since = new Date()
+  since.setDate(since.getDate() - days)
+  const { data, error } = await supabase
+    .from('meal_history').select('*')
+    .gte('date', since.toISOString().split('T')[0])
+    .order('date', { ascending: false })
+  if (error) throw error
+  return data || []
+}
