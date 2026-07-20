@@ -53,38 +53,79 @@ function fmtDayNum(dateStr) { return new Date(dateStr + 'T12:00:00').getDate() }
 
 // ── SUGGESTION ALGORITHM ──────────────────────────────────────────────────
 
+function pickWeighted(pool) {
+  const sorted = [...pool].sort((a, b) => (b.rating || 0) - (a.rating || 0))
+  const top = sorted.slice(0, 6)
+  const weights = top.map((r, i) => Math.max(1, ((r.rating || 3) * 4) - i * 2))
+  const total = weights.reduce((a, b) => a + b, 0)
+  let rand = Math.random() * total
+  for (let i = 0; i < top.length; i++) { rand -= weights[i]; if (rand <= 0) return top[i] }
+  return top[0]
+}
+
 function suggestMenuSlots(recipes, history, days, existingSlots) {
   // No repetir la misma receta en la misma semana
   const usedThisWeek = new Set(existingSlots.map(s => s.recipe_id).filter(Boolean))
-  // Preferir recetas no comidas recientemente (últimas 2 semanas)
+  // Preferir recetas no comidas en las últimas 2 semanas
   const recentIds = new Set(history.map(h => h.recipe_id).filter(Boolean))
   let indulgenteCount = existingSlots.filter(s => recipes.find(r => r.id === s.recipe_id)?.health_tag === 'indulgente').length
   const newSlots = []
 
+  const prefer = (pool) => {
+    const notRecent = pool.filter(r => !recentIds.has(r.id))
+    return notRecent.length >= 1 ? notRecent : pool
+  }
+
   for (const date of days) {
+    const all = () => [...existingSlots, ...newSlots]
+
     for (const mealType of ['desayuno', 'comida', 'cena']) {
-      // Máximo 1 receta por slot en sugerencia automática
-      const alreadyFilled = [...existingSlots, ...newSlots].some(s => s.date === date && s.meal_type === mealType)
-      if (alreadyFilled) continue
+      const filledSlots = all().filter(s => s.date === date && s.meal_type === mealType)
 
-      let pool = recipes.filter(r => r.moment_tags?.includes(mealType) && !usedThisWeek.has(r.id))
-      const notRecent = pool.filter(r => !recentIds.has(r.id))
-      if (notRecent.length >= 1) pool = notRecent
-      if (indulgenteCount >= 3) { const h = pool.filter(r => r.health_tag !== 'indulgente'); if (h.length > 0) pool = h }
-      // Si no hay receta disponible para este slot, saltar (no detener el loop)
-      if (pool.length === 0) continue
+      if (mealType === 'comida') {
+        // Slot 0 — Proteína: plato fuerte (obligatorio)
+        if (!filledSlots.some(s => s.slot_order === 0)) {
+          // Primero busca con tag 'plato fuerte', si no hay usa cualquier comida
+          let pool = recipes.filter(r => r.moment_tags?.includes('comida') && r.category_tags?.includes('plato fuerte') && !usedThisWeek.has(r.id))
+          if (pool.length === 0) pool = recipes.filter(r => r.moment_tags?.includes('comida') && !usedThisWeek.has(r.id))
+          pool = prefer(pool)
+          if (pool.length > 0) {
+            const picked = pickWeighted(pool)
+            newSlots.push({ date, meal_type: 'comida', recipe_id: picked.id, slot_order: 0 })
+            usedThisWeek.add(picked.id)
+            if (picked.health_tag === 'indulgente') indulgenteCount++
+          }
+        }
 
-      pool.sort((a, b) => (b.rating || 0) - (a.rating || 0))
-      const top = pool.slice(0, 6)
-      const weights = top.map((r, i) => Math.max(1, ((r.rating || 3) * 4) - i * 2))
-      const total = weights.reduce((a, b) => a + b, 0)
-      let rand = Math.random() * total
-      let picked = top[0]
-      for (let i = 0; i < top.length; i++) { rand -= weights[i]; if (rand <= 0) { picked = top[i]; break } }
+        // Slot 1 — Verdura o sopa (opcional, solo si hay disponible)
+        const hasProtein = all().some(s => s.date === date && s.meal_type === 'comida' && s.slot_order === 0)
+        if (hasProtein && !filledSlots.some(s => s.slot_order === 1)) {
+          let pool = recipes.filter(r =>
+            r.moment_tags?.includes('comida') &&
+            (r.category_tags?.includes('verdura') || r.category_tags?.includes('sopa')) &&
+            !usedThisWeek.has(r.id)
+          )
+          pool = prefer(pool)
+          if (pool.length > 0) {
+            const picked = pickWeighted(pool)
+            newSlots.push({ date, meal_type: 'comida', recipe_id: picked.id, slot_order: 1 })
+            usedThisWeek.add(picked.id)
+            if (picked.health_tag === 'indulgente') indulgenteCount++
+          }
+        }
 
-      newSlots.push({ date, meal_type: mealType, recipe_id: picked.id, slot_order: 0 })
-      usedThisWeek.add(picked.id)
-      if (picked.health_tag === 'indulgente') indulgenteCount++
+      } else {
+        // Desayuno y cena: 1 receta por día
+        if (filledSlots.length > 0) continue
+        let pool = recipes.filter(r => r.moment_tags?.includes(mealType) && !usedThisWeek.has(r.id))
+        pool = prefer(pool)
+        if (indulgenteCount >= 3) { const h = pool.filter(r => r.health_tag !== 'indulgente'); if (h.length > 0) pool = h }
+        if (pool.length === 0) continue
+        const picked = pickWeighted(pool)
+        newSlots.push({ date, meal_type: mealType, recipe_id: picked.id, slot_order: 0 })
+        usedThisWeek.add(picked.id)
+        if (picked.health_tag === 'indulgente') indulgenteCount++
+      }
     }
   }
   return newSlots
