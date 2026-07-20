@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { uploadPhoto, fetchRecipes, insertRecipe, updateRecipe, deleteRecipe, updateRating } from './supabase.js'
+import { uploadPhoto, fetchRecipes, insertRecipe, updateRecipe, deleteRecipe, updateRating, fetchOrCreateWeeklyMenu, fetchMenuSlots, addMenuSlot, removeMenuSlot, fetchRecentMealHistory } from './supabase.js'
 import { useRegisterSW } from 'virtual:pwa-register/react'
 
 const C = { bg: '#F5F0E8', surface: '#FFFDF9', border: '#E8DED0', green: '#4A7C59', greenBg: '#EDF4EF', greenDark: '#2D5238', amber: '#B8763A', amberBg: '#FDF4E8', text: '#2C2416', textSec: '#7A6E5F', textMuted: '#B0A090', danger: '#C0392B' }
@@ -9,8 +9,10 @@ const MTAGS = ['desayuno', 'comida', 'cena', 'botana']
 const CTAGS = ['plato fuerte', 'verdura', 'sopa', 'acompañamiento', 'fruta', 'postre']
 const ATAGS = ['fer', 'inés', 'todos']
 const HTAGS = ['sano', 'balanceado', 'indulgente']
+const MEALS = [{ key: 'desayuno', label: 'Desayuno', icon: '☀️' }, { key: 'comida', label: 'Comida', icon: '🌞' }, { key: 'cena', label: 'Cena', icon: '🌙' }, { key: 'botana', label: 'Botana', icon: '🍎' }]
 const serif = `Georgia,'Palatino Linotype',serif`
 const sans = `-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif`
+const DAY_NAMES = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb']
 
 const S = {
   app: { height: '100dvh', width: '100%', maxWidth: 430, margin: '0 auto', display: 'flex', flexDirection: 'column', background: C.bg, position: 'relative', overflow: 'hidden', fontFamily: sans },
@@ -23,19 +25,85 @@ const S = {
   input: { width: '100%', padding: '11px 14px', borderRadius: 12, border: `0.5px solid ${C.border}`, fontSize: 15, background: C.surface, outline: 'none', color: C.text, fontFamily: sans },
   label: { fontSize: 11, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 6, fontWeight: 500 },
   btn: (bg, tx) => ({ background: bg, color: tx, border: 'none', borderRadius: 12, padding: '14px', fontSize: 16, fontWeight: 600, cursor: 'pointer', width: '100%', fontFamily: sans }),
-  fab: { position: 'absolute', bottom: 28, right: 20, width: 56, height: 56, borderRadius: '50%', background: C.green, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 20 },
+  fab: { position: 'absolute', bottom: 88, right: 20, width: 56, height: 56, borderRadius: '50%', background: C.green, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 20 },
   divider: { height: '0.5px', background: C.border, margin: '16px 0' },
   sec: { fontSize: 11, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10, display: 'block', fontWeight: 500 },
 }
+
+// ── UTILITIES ─────────────────────────────────────────────────────────────
+
+function getWeekDates(offset = 0) {
+  const today = new Date()
+  const day = today.getDay()
+  const diff = day === 0 ? -6 : 1 - day
+  const monday = new Date(today)
+  monday.setDate(today.getDate() + diff + offset * 7)
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(monday)
+    d.setDate(monday.getDate() + i)
+    return d.toISOString().split('T')[0]
+  })
+}
+
+function fmtDate(dateStr, opts = {}) {
+  return new Date(dateStr + 'T12:00:00').toLocaleDateString('es-MX', opts)
+}
+function fmtDay(dateStr) { return DAY_NAMES[new Date(dateStr + 'T12:00:00').getDay()] }
+function fmtDayNum(dateStr) { return new Date(dateStr + 'T12:00:00').getDate() }
+
+// ── SUGGESTION ALGORITHM ──────────────────────────────────────────────────
+
+function suggestMenuSlots(recipes, history, days, existingSlots) {
+  const usedThisWeek = new Set(existingSlots.map(s => s.recipe_id).filter(Boolean))
+  const recentIds = new Set(history.map(h => h.recipe_id).filter(Boolean))
+  let indulgenteCount = existingSlots.filter(s => recipes.find(r => r.id === s.recipe_id)?.health_tag === 'indulgente').length
+  const newSlots = []
+
+  for (const date of days) {
+    for (const mealType of ['desayuno', 'comida', 'cena']) {
+      const alreadyInExisting = existingSlots.filter(s => s.date === date && s.meal_type === mealType).length
+      const alreadyInNew = newSlots.filter(s => s.date === date && s.meal_type === mealType).length
+      const totalSoFar = alreadyInExisting + alreadyInNew
+      const target = mealType === 'comida' ? 2 : 1
+      const needed = target - totalSoFar
+      if (needed <= 0) continue
+
+      for (let n = 0; n < needed; n++) {
+        const catPref = mealType === 'comida' && (totalSoFar + n) === 0 ? 'plato fuerte'
+          : mealType === 'comida' && (totalSoFar + n) === 1 ? 'verdura' : null
+
+        let pool = recipes.filter(r => r.moment_tags?.includes(mealType) && !usedThisWeek.has(r.id))
+        if (catPref) { const cp = pool.filter(r => r.category_tags?.includes(catPref)); if (cp.length > 0) pool = cp }
+        const notRecent = pool.filter(r => !recentIds.has(r.id))
+        if (notRecent.length >= 1) pool = notRecent
+        if (indulgenteCount >= 3) { const h = pool.filter(r => r.health_tag !== 'indulgente'); if (h.length > 0) pool = h }
+        if (pool.length === 0) break
+
+        pool.sort((a, b) => (b.rating || 0) - (a.rating || 0))
+        const top = pool.slice(0, 6)
+        const weights = top.map((r, i) => Math.max(1, ((r.rating || 3) * 4) - i * 2))
+        const total = weights.reduce((a, b) => a + b, 0)
+        let rand = Math.random() * total
+        let picked = top[0]
+        for (let i = 0; i < top.length; i++) { rand -= weights[i]; if (rand <= 0) { picked = top[i]; break } }
+
+        newSlots.push({ date, meal_type: mealType, recipe_id: picked.id, slot_order: totalSoFar + n })
+        usedThisWeek.add(picked.id)
+        if (picked.health_tag === 'indulgente') indulgenteCount++
+      }
+    }
+  }
+  return newSlots
+}
+
+// ── UI PRIMITIVES ─────────────────────────────────────────────────────────
 
 const Pill = ({ label, bg, tx, small, onX }) => (
   <span style={S.pill(bg, tx, small)} onClick={onX ? e => { e.stopPropagation(); onX() } : undefined}>
     {label}{onX && <span style={{ fontSize: 14, marginLeft: 2 }}>×</span>}
   </span>
 )
-
 const Toggle = ({ label, active, abg, atx, onClick }) => (<span style={S.tog(active, abg, atx)} onClick={onClick}>{label}</span>)
-
 const Icon = ({ name, size = 20, color = 'currentColor', style: st }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" style={st}>
     {name === 'back' && <polyline points="15 18 9 12 15 6" />}
@@ -53,21 +121,326 @@ const Icon = ({ name, size = 20, color = 'currentColor', style: st }) => (
     {name === 'pencil' && <><path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" /></>}
     {name === 'link' && <><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></>}
     {name === 'user' && <><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></>}
+    {name === 'calendar' && <><rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></>}
+    {name === 'share' && <><circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><line x1="8.59" y1="13.51" x2="15.42" y2="17.49" /><line x1="15.41" y1="6.51" x2="8.59" y2="10.49" /></>}
   </svg>
 )
-
-// ⭐ StarRating: renders 5 stars, filled up to `value`. `onChange` makes them interactive.
 const StarRating = ({ value, onChange, size = 24, gap = 4 }) => (
   <div style={{ display: 'flex', gap }}>
     {[1, 2, 3, 4, 5].map(i => (
-      <span
-        key={i}
-        onClick={onChange ? () => onChange(i) : undefined}
-        style={{ fontSize: size, cursor: onChange ? 'pointer' : 'default', color: i <= (value || 0) ? C.amber : C.border, lineHeight: 1, userSelect: 'none', WebkitUserSelect: 'none' }}
-      >★</span>
+      <span key={i} onClick={onChange ? () => onChange(i) : undefined} style={{ fontSize: size, cursor: onChange ? 'pointer' : 'default', color: i <= (value || 0) ? C.amber : C.border, lineHeight: 1, userSelect: 'none', WebkitUserSelect: 'none' }}>★</span>
     ))}
   </div>
 )
+
+// ── PLANNER COMPONENTS ────────────────────────────────────────────────────
+
+function RecipePickerModal({ mealType, onPick, onClose, recipes }) {
+  const [search, setSearch] = useState('')
+  const ref = useRef()
+  useEffect(() => { setTimeout(() => ref.current?.focus(), 100) }, [])
+
+  const candidates = recipes.filter(r => {
+    if (!r.moment_tags?.includes(mealType)) return false
+    if (search && !r.title.toLowerCase().includes(search.toLowerCase())) return false
+    return true
+  }).sort((a, b) => (b.rating || 0) - (a.rating || 0))
+
+  return (
+    <div style={{ position: 'absolute', inset: 0, zIndex: 60, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
+      <div style={{ position: 'absolute', inset: 0, background: 'rgba(44,36,22,.45)' }} onClick={onClose} />
+      <div style={{ position: 'relative', background: C.surface, borderRadius: '20px 20px 0 0', maxHeight: '72vh', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ padding: '16px 20px 12px', borderBottom: `0.5px solid ${C.border}`, flexShrink: 0 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <h3 style={{ fontSize: 18, fontWeight: 700, color: C.text, fontFamily: serif, margin: 0 }}>
+              Agregar a {mealType}
+            </h3>
+            <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}>
+              <Icon name="x" size={20} color={C.textSec} />
+            </button>
+          </div>
+          <div style={{ position: 'relative' }}>
+            <Icon name="search" size={15} color={C.textMuted} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
+            <input ref={ref} style={{ ...S.input, paddingLeft: 34, fontSize: 14 }} type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar receta..." />
+          </div>
+        </div>
+        <div style={{ overflowY: 'auto', flex: 1, WebkitOverflowScrolling: 'touch' }}>
+          {candidates.length === 0 && (
+            <div style={{ padding: '32px 20px', textAlign: 'center', color: C.textMuted }}>
+              <p style={{ fontSize: 14, marginBottom: 6 }}>No hay recetas para {mealType}</p>
+              <p style={{ fontSize: 12 }}>Agrega el tag "{mealType}" a tus recetas</p>
+            </div>
+          )}
+          {candidates.map(r => (
+            <div key={r.id} onClick={() => onPick(r.id)} style={{ padding: '11px 20px', display: 'flex', alignItems: 'center', gap: 12, borderBottom: `0.5px solid ${C.border}`, cursor: 'pointer', active: 'background:#F0EDF0' }}>
+              <div style={{ width: 44, height: 44, borderRadius: 10, flexShrink: 0, overflow: 'hidden', background: C.greenBg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                {r.photo_url ? <img src={r.photo_url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="" /> : <span style={{ fontSize: 20, fontFamily: serif, fontWeight: 700, color: C.green }}>{r.title[0]}</span>}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ fontWeight: 600, fontSize: 14, color: C.text, margin: '0 0 3px', fontFamily: serif, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.title}</p>
+                {r.rating ? <StarRating value={r.rating} size={11} gap={1} /> : <span style={{ fontSize: 11, color: C.textMuted }}>Sin calificación</span>}
+              </div>
+              <Icon name="plus" size={18} color={C.green} />
+            </div>
+          ))}
+          <div style={{ height: 20 }} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ShareModal({ weekDays, slots, recipes, onClose }) {
+  const weekStart = weekDays[0]
+  const weekEnd = weekDays[6]
+  const weekLabel = `${fmtDate(weekStart, { day: 'numeric', month: 'short' })} – ${fmtDate(weekEnd, { day: 'numeric', month: 'short' })}`
+  const getRecipe = id => recipes.find(r => r.id === id)
+  const getDaySlots = (date, mt) => slots.filter(s => s.date === date && s.meal_type === mt).sort((a, b) => a.slot_order - b.slot_order)
+
+  const handleNativeShare = async () => {
+    const lines = [`🗓 Menú ${weekLabel}\n`]
+    for (const date of weekDays) {
+      const hasMeals = MEALS.some(m => getDaySlots(date, m.key).length > 0)
+      if (!hasMeals) continue
+      lines.push(`${fmtDay(date)} ${fmtDayNum(date)}`)
+      for (const { key, icon, label } of MEALS) {
+        const ds = getDaySlots(date, key)
+        if (!ds.length) continue
+        const names = ds.map(s => getRecipe(s.recipe_id)?.title).filter(Boolean).join(' + ')
+        lines.push(`  ${icon} ${names}`)
+      }
+      lines.push('')
+    }
+    try {
+      await navigator.share({ title: `Menú ${weekLabel}`, text: lines.join('\n') })
+    } catch (e) { /* user cancelled or not supported */ }
+  }
+
+  return (
+    <div style={{ position: 'absolute', inset: 0, zIndex: 70, background: C.bg, display: 'flex', flexDirection: 'column' }}>
+      <div style={{ padding: '52px 20px 14px', background: C.surface, borderBottom: `0.5px solid ${C.border}`, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.textSec, fontSize: 15, padding: 0 }}>Cerrar</button>
+        <h2 style={{ fontSize: 17, fontWeight: 700, color: C.text, fontFamily: serif, margin: 0 }}>Menú {weekLabel}</h2>
+        {navigator.share ? (
+          <button onClick={handleNativeShare} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.green, fontSize: 15, fontWeight: 600, padding: 0, display: 'flex', alignItems: 'center', gap: 4 }}>
+            <Icon name="share" size={17} color={C.green} />Compartir
+          </button>
+        ) : <div style={{ width: 70 }} />}
+      </div>
+      <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: '16px 20px 40px' }}>
+        {!navigator.share && <p style={{ fontSize: 12, color: C.textMuted, textAlign: 'center', marginBottom: 16 }}>Toma una captura de pantalla para guardar o compartir</p>}
+        {weekDays.map(date => {
+          const hasMeals = MEALS.some(m => getDaySlots(date, m.key).length > 0)
+          if (!hasMeals) return <div key={date} style={{ background: C.surface, borderRadius: 14, border: `0.5px solid ${C.border}`, padding: '12px 16px', marginBottom: 8, opacity: 0.4 }}>
+            <p style={{ fontWeight: 700, fontSize: 14, color: C.textMuted, fontFamily: serif, margin: 0 }}>{fmtDay(date)} {fmtDayNum(date)} — sin planificar</p>
+          </div>
+          return (
+            <div key={date} style={{ background: C.surface, borderRadius: 16, border: `0.5px solid ${C.border}`, padding: '14px 16px', marginBottom: 10 }}>
+              <p style={{ fontWeight: 700, fontSize: 15, color: C.text, fontFamily: serif, marginBottom: 10, margin: '0 0 10px' }}>{fmtDay(date)} {fmtDayNum(date)}</p>
+              {MEALS.map(({ key, icon }) => {
+                const ds = getDaySlots(date, key)
+                if (!ds.length) return null
+                return (
+                  <div key={key} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginBottom: 6 }}>
+                    <span style={{ fontSize: 14, width: 22, flexShrink: 0, lineHeight: '20px' }}>{icon}</span>
+                    <div>{ds.map(s => { const r = getRecipe(s.recipe_id); return r ? <p key={s.id} style={{ fontSize: 13, color: C.text, margin: '0 0 2px', lineHeight: 1.4 }}>{r.title}</p> : null })}</div>
+                  </div>
+                )
+              })}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function PlannerScreen({ recipes }) {
+  const [weekOffset, setWeekOffset] = useState(0)
+  const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split('T')[0])
+  const [currentMenu, setCurrentMenu] = useState(null)
+  const [slots, setSlots] = useState([])
+  const [mealHistory, setMealHistory] = useState([])
+  const [showPicker, setShowPicker] = useState(null)
+  const [showShare, setShowShare] = useState(false)
+  const [suggesting, setSuggesting] = useState(false)
+  const [loading, setLoading] = useState(true)
+
+  const weekDays = getWeekDates(weekOffset)
+  const weekStart = weekDays[0]
+  const weekEnd = weekDays[6]
+  const weekLabel = `${fmtDate(weekStart, { day: 'numeric', month: 'short' })} – ${fmtDate(weekEnd, { day: 'numeric', month: 'short' })}`
+  const today = new Date().toISOString().split('T')[0]
+
+  useEffect(() => {
+    setSelectedDate(weekDays.includes(today) ? today : weekDays[0])
+  }, [weekOffset])
+
+  useEffect(() => {
+    loadWeek()
+  }, [weekOffset])
+
+  const loadWeek = async () => {
+    setLoading(true)
+    setSlots([])
+    setCurrentMenu(null)
+    try {
+      const [menu, history] = await Promise.all([
+        fetchOrCreateWeeklyMenu(weekStart, weekEnd),
+        fetchRecentMealHistory(14)
+      ])
+      setCurrentMenu(menu)
+      setMealHistory(history)
+      const ms = await fetchMenuSlots(menu.id)
+      setSlots(ms)
+    } catch (e) { console.error(e) }
+    setLoading(false)
+  }
+
+  const handleAddSlot = async (recipe_id) => {
+    if (!showPicker || !currentMenu) return
+    const { date, meal_type } = showPicker
+    const existing = slots.filter(s => s.date === date && s.meal_type === meal_type)
+    if (existing.length >= 3) return
+    try {
+      const saved = await addMenuSlot({ menu_id: currentMenu.id, date, meal_type, slot_order: existing.length, recipe_id })
+      setSlots(prev => [...prev, saved])
+    } catch (e) { console.error(e) }
+    setShowPicker(null)
+  }
+
+  const handleRemoveSlot = async (slotId) => {
+    try {
+      await removeMenuSlot(slotId)
+      setSlots(prev => prev.filter(s => s.id !== slotId))
+    } catch (e) { console.error(e) }
+  }
+
+  const handleSuggest = async () => {
+    if (!currentMenu || suggesting || recipes.length === 0) return
+    setSuggesting(true)
+    const newSlotDefs = suggestMenuSlots(recipes, mealHistory, weekDays, slots)
+    try {
+      const saved = []
+      for (const slotDef of newSlotDefs) {
+        const s = await addMenuSlot({ menu_id: currentMenu.id, ...slotDef })
+        saved.push(s)
+      }
+      setSlots(prev => [...prev, ...saved])
+    } catch (e) { console.error(e) }
+    setSuggesting(false)
+  }
+
+  const getDaySlots = (date, mealType) =>
+    slots.filter(s => s.date === date && s.meal_type === mealType).sort((a, b) => a.slot_order - b.slot_order)
+  const getRecipe = id => recipes.find(r => r.id === id)
+  const totalFilled = slots.length
+  const hasAny = weekDays.some(d => MEALS.some(m => getDaySlots(d, m.key).length > 0))
+
+  return (
+    <div style={{ ...S.screen, position: 'relative' }}>
+      {/* Header */}
+      <div style={{ padding: '52px 20px 14px', background: C.surface, borderBottom: `0.5px solid ${C.border}`, flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+          <h1 style={{ fontSize: 22, fontWeight: 700, color: C.text, fontFamily: serif, margin: 0 }}>Planificador</h1>
+          <button
+            onClick={handleSuggest}
+            disabled={suggesting || recipes.length === 0}
+            style={{ background: totalFilled === 0 ? C.amber : C.amberBg, color: totalFilled === 0 ? '#fff' : C.amber, border: 'none', borderRadius: 12, padding: '9px 14px', fontSize: 13, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, opacity: (suggesting || recipes.length === 0) ? 0.5 : 1 }}
+          >
+            {suggesting ? '...' : '⚡ Sugerir semana'}
+          </button>
+        </div>
+        {/* Week nav */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: C.bg, borderRadius: 12, padding: '4px 4px' }}>
+          <button onClick={() => setWeekOffset(o => o - 1)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '6px 14px', color: C.textSec, fontSize: 22, lineHeight: 1 }}>‹</button>
+          <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{weekLabel}</span>
+          <button onClick={() => setWeekOffset(o => o + 1)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '6px 14px', color: C.textSec, fontSize: 22, lineHeight: 1 }}>›</button>
+        </div>
+      </div>
+
+      {/* Day tabs */}
+      <div style={{ padding: '10px 16px', display: 'flex', gap: 5, overflowX: 'auto', scrollbarWidth: 'none', flexShrink: 0, background: C.surface, borderBottom: `0.5px solid ${C.border}` }}>
+        {weekDays.map(date => {
+          const active = date === selectedDate
+          const hasSlotsToday = slots.some(s => s.date === date)
+          const isToday = date === today
+          return (
+            <button key={date} onClick={() => setSelectedDate(date)} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '7px 10px', borderRadius: 12, border: isToday && !active ? `1.5px solid ${C.green}` : 'none', cursor: 'pointer', flexShrink: 0, background: active ? C.green : 'transparent', minWidth: 42, gap: 1 }}>
+              <span style={{ fontSize: 10, fontWeight: 600, color: active ? 'rgba(255,255,255,.8)' : C.textMuted, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{fmtDay(date)}</span>
+              <span style={{ fontSize: 17, fontWeight: 700, color: active ? '#fff' : isToday ? C.green : C.text, lineHeight: 1.2 }}>{fmtDayNum(date)}</span>
+              <div style={{ width: 5, height: 5, borderRadius: '50%', background: active ? 'rgba(255,255,255,.6)' : hasSlotsToday ? C.green : 'transparent' }} />
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Day content */}
+      <div style={{ ...S.scroll, padding: '14px 20px', background: C.bg }}>
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: '60px 0', color: C.textMuted }}><p style={{ fontSize: 14 }}>Cargando menú...</p></div>
+        ) : recipes.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '60px 20px', color: C.textMuted }}>
+            <div style={{ fontSize: 48, marginBottom: 16 }}>🍽</div>
+            <p style={{ fontSize: 16, fontWeight: 600, color: C.textSec, fontFamily: serif, marginBottom: 8 }}>Primero agrega recetas</p>
+            <p style={{ fontSize: 13 }}>Necesitas recetas con tags de momento (desayuno, comida, cena) para planificar</p>
+          </div>
+        ) : (
+          <>
+            <p style={{ fontSize: 15, fontWeight: 700, color: C.text, fontFamily: serif, marginBottom: 14 }}>
+              {fmtDay(selectedDate)}, {fmtDate(selectedDate, { day: 'numeric', month: 'long' })}
+            </p>
+            {MEALS.map(({ key: mealType, label, icon }) => {
+              const daySlots = getDaySlots(selectedDate, mealType)
+              const mc = MT[mealType] || { bg: C.greenBg, tx: C.greenDark, ac: C.green }
+              return (
+                <div key={mealType} style={{ background: C.surface, borderRadius: 16, border: `0.5px solid ${C.border}`, padding: '14px 16px', marginBottom: 10 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: daySlots.length > 0 ? 10 : 0 }}>
+                    <span style={{ fontSize: 16 }}>{icon}</span>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: mc.tx, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</span>
+                  </div>
+                  {daySlots.map(slot => {
+                    const r = getRecipe(slot.recipe_id)
+                    if (!r) return null
+                    return (
+                      <div key={slot.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderTop: `0.5px solid ${C.border}` }}>
+                        <div style={{ width: 38, height: 38, borderRadius: 9, flexShrink: 0, overflow: 'hidden', background: mc.bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          {r.photo_url ? <img src={r.photo_url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="" /> : <span style={{ fontSize: 17, fontWeight: 700, color: mc.ac, fontFamily: serif }}>{r.title[0]}</span>}
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <p style={{ fontSize: 13, fontWeight: 600, color: C.text, margin: '0 0 2px', fontFamily: serif, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.title}</p>
+                          {r.rating && <StarRating value={r.rating} size={10} gap={1} />}
+                        </div>
+                        <button onClick={() => handleRemoveSlot(slot.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px 6px', flexShrink: 0 }}>
+                          <Icon name="x" size={16} color={C.textMuted} />
+                        </button>
+                      </div>
+                    )
+                  })}
+                  {daySlots.length < 3 && (
+                    <button onClick={() => setShowPicker({ date: selectedDate, meal_type: mealType })} style={{ width: '100%', padding: '9px', background: 'none', border: `1px dashed ${C.border}`, borderRadius: 10, cursor: 'pointer', color: C.textMuted, fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: daySlots.length > 0 ? 8 : 0 }}>
+                      <Icon name="plus" size={13} color={C.textMuted} />Agregar
+                    </button>
+                  )}
+                </div>
+              )
+            })}
+            {hasAny && (
+              <button onClick={() => setShowShare(true)} style={{ ...S.btn(C.green, '#fff'), marginTop: 6, marginBottom: 80, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                <Icon name="share" size={18} color="#fff" />Ver menú completo
+              </button>
+            )}
+          </>
+        )}
+      </div>
+
+      {showPicker && <RecipePickerModal mealType={showPicker.meal_type} recipes={recipes} onPick={handleAddSlot} onClose={() => setShowPicker(null)} />}
+      {showShare && <ShareModal weekDays={weekDays} slots={slots} recipes={recipes} onClose={() => setShowShare(false)} />}
+    </div>
+  )
+}
+
+// ── RECIPE COMPONENTS ─────────────────────────────────────────────────────
 
 function RecipeCard({ r, onClick }) {
   const th = MT[r.moment_tags?.[0]]
@@ -120,10 +493,7 @@ function ListScreen({ recipes, loading, onAdd, onSel, filters, setFilters, searc
           <Icon name="filter" size={13} color={active.length ? C.greenDark : C.textSec} />
           Filtros{active.length ? ` · ${active.length}` : ''}
         </button>
-        <button
-          onClick={() => setSort(s => s === 'rating' ? 'new' : 'rating')}
-          style={{ padding: '7px 14px', borderRadius: 999, fontSize: 13, fontWeight: 600, cursor: 'pointer', flexShrink: 0, border: sort === 'rating' ? 'none' : `0.5px solid ${C.border}`, background: sort === 'rating' ? C.amberBg : C.surface, color: sort === 'rating' ? C.amber : C.textSec, display: 'flex', alignItems: 'center', gap: 4 }}
-        >
+        <button onClick={() => setSort(s => s === 'rating' ? 'new' : 'rating')} style={{ padding: '7px 14px', borderRadius: 999, fontSize: 13, fontWeight: 600, cursor: 'pointer', flexShrink: 0, border: sort === 'rating' ? 'none' : `0.5px solid ${C.border}`, background: sort === 'rating' ? C.amberBg : C.surface, color: sort === 'rating' ? C.amber : C.textSec, display: 'flex', alignItems: 'center', gap: 4 }}>
           ★ {sort === 'rating' ? 'Mejor calificadas' : 'Calificación'}
         </button>
         {active.map((v, i) => <Pill key={i} label={v} small bg={C.greenBg} tx={C.greenDark} onX={() => setFilters(f => { const n = { ...f }; for (const k of Object.keys(n)) n[k] = n[k].filter(x => x !== v); return n })} />)}
@@ -139,7 +509,7 @@ function ListScreen({ recipes, loading, onAdd, onSel, filters, setFilters, searc
             <p style={{ fontSize: 13, color: C.textMuted }}>{recipes.length === 0 ? 'Toca + para agregar tu primera receta' : 'Prueba con otros filtros'}</p>
           </div>
         )}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingBottom: 100 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingBottom: 120 }}>
           {list.map(r => <RecipeCard key={r.id} r={r} onClick={() => onSel(r)} />)}
         </div>
       </div>
@@ -156,8 +526,7 @@ function DetailScreen({ r, onBack, onEdit, onDelete, onRate }) {
   const [rateSaved, setRateSaved] = useState(false)
 
   const handleRate = async (v) => {
-    setLocalRating(v)
-    setRateSaved(false)
+    setLocalRating(v); setRateSaved(false)
     await onRate(v)
     setRateSaved(true)
     setTimeout(() => setRateSaved(false), 2000)
@@ -189,15 +558,12 @@ function DetailScreen({ r, onBack, onEdit, onDelete, onRate }) {
             {r.audience_tags?.map(t => <Pill key={t} label={t} bg='#F0EDF8' tx='#4A3A7A' />)}
             {r.health_tag && <Pill label={r.health_tag} bg={HT[r.health_tag]?.bg || C.greenBg} tx={HT[r.health_tag]?.tx || C.greenDark} />}
           </div>
-
-          {/* ⭐ Rating interactivo */}
           <div style={{ padding: '16px 0', borderBottom: `0.5px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 14 }}>
             <StarRating value={localRating} onChange={handleRate} size={32} gap={6} />
             <span style={{ fontSize: 13, color: rateSaved ? C.green : C.textMuted, fontWeight: rateSaved ? 600 : 400, transition: 'color 0.3s' }}>
               {rateSaved ? '✓ Guardado' : localRating > 0 ? `${localRating}/5` : 'Sin calificación'}
             </span>
           </div>
-
           <h3 style={{ fontSize: 17, fontWeight: 700, margin: '18px 0 12px', color: C.text, fontFamily: serif }}>Ingredientes</h3>
           {(r.ingredients || []).map((g, i) => (
             <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: `0.5px solid ${C.border}`, fontSize: 14 }}>
@@ -304,11 +670,7 @@ function RecipeForm({ initial, onBack, onSave, onSaveLabel = 'Guardar' }) {
         img.onerror = () => { URL.revokeObjectURL(objUrl); reject(new Error('Error cargando imagen')) }
         img.src = objUrl
       })
-      const res = await fetch('https://bhhrxotdiwdtltyitnyk.supabase.co/functions/v1/extract-recipe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image: b64, mimeType: 'image/jpeg' })
-      })
+      const res = await fetch('https://bhhrxotdiwdtltyitnyk.supabase.co/functions/v1/extract-recipe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ image: b64, mimeType: 'image/jpeg' }) })
       if (!res.ok) throw new Error('HTTP ' + res.status + ': ' + await res.text())
       const p = await res.json()
       if (p.error) throw new Error(p.error)
@@ -330,14 +692,7 @@ function RecipeForm({ initial, onBack, onSave, onSaveLabel = 'Guardar' }) {
       let photoUrl = f.photo_url
       if (photoFile) photoUrl = await uploadPhoto(photoFile)
       const toInt = (v, def = 0) => v === '' || v == null ? def : Number(v) || def
-      const recipe = {
-        ...f,
-        photo_url: photoUrl,
-        times_made: f.times_made || 0,
-        prep_time: toInt(f.prep_time),
-        cook_time: toInt(f.cook_time),
-        servings: toInt(f.servings, 2)
-      }
+      const recipe = { ...f, photo_url: photoUrl, times_made: f.times_made || 0, prep_time: toInt(f.prep_time), cook_time: toInt(f.cook_time), servings: toInt(f.servings, 2) }
       delete recipe.id
       await onSave(recipe)
     } catch (e) { setErr('Error al guardar. Intenta de nuevo.'); setSaving(false) }
@@ -458,8 +813,11 @@ function RecipeForm({ initial, onBack, onSave, onSaveLabel = 'Guardar' }) {
   )
 }
 
+// ── APP ───────────────────────────────────────────────────────────────────
+
 export default function App() {
   const { needRefresh: [needRefresh], updateServiceWorker } = useRegisterSW()
+  const [activeTab, setActiveTab] = useState('recipes')
   const [screen, setScreen] = useState('list')
   const [recipes, setRecipes] = useState([])
   const [loading, setLoading] = useState(true)
@@ -474,11 +832,9 @@ export default function App() {
   const handleSave = async (recipe) => { const saved = await insertRecipe(recipe); setRecipes(p => [saved, ...p]); go('list') }
   const handleUpdate = async (recipe) => { const updated = await updateRecipe(sel.id, recipe); setRecipes(p => p.map(r => r.id === sel.id ? updated : r)); setSel(updated); go('detail', updated) }
   const handleDelete = async () => { await deleteRecipe(sel.id); setRecipes(p => p.filter(r => r.id !== sel.id)); go('list') }
-  const handleRate = async (rating) => {
-    const updated = await updateRating(sel.id, rating)
-    setRecipes(p => p.map(r => r.id === sel.id ? updated : r))
-    setSel(updated)
-  }
+  const handleRate = async (rating) => { const updated = await updateRating(sel.id, rating); setRecipes(p => p.map(r => r.id === sel.id ? updated : r)); setSel(updated) }
+
+  const hideBottomNav = ['add', 'edit', 'filter'].includes(screen) && activeTab === 'recipes'
 
   return (
     <div style={S.app}>
@@ -488,11 +844,31 @@ export default function App() {
           <button onClick={() => updateServiceWorker(true)} style={{ background: 'rgba(255,255,255,.2)', border: 'none', color: '#fff', borderRadius: 8, padding: '6px 14px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>Actualizar</button>
         </div>
       )}
-      {screen === 'list' && <ListScreen recipes={recipes} loading={loading} onAdd={() => go('add')} onSel={r => go('detail', r)} filters={filters} setFilters={setFilters} search={search} setSearch={setSearch} onFilter={() => go('filter')} sort={sort} setSort={setSort} />}
-      {screen === 'detail' && sel && <DetailScreen r={sel} onBack={() => go('list')} onEdit={() => go('edit', sel)} onDelete={handleDelete} onRate={handleRate} />}
-      {screen === 'add' && <RecipeForm onBack={() => go('list')} onSave={handleSave} />}
-      {screen === 'edit' && sel && <RecipeForm initial={sel} onBack={() => go('detail', sel)} onSave={handleUpdate} onSaveLabel="Actualizar" />}
-      {screen === 'filter' && <FilterScreen filters={filters} setFilters={setFilters} onBack={() => go('list')} />}
+
+      {/* Main content */}
+      {activeTab === 'planner' ? (
+        <PlannerScreen recipes={recipes} />
+      ) : (
+        <>
+          {screen === 'list' && <ListScreen recipes={recipes} loading={loading} onAdd={() => go('add')} onSel={r => go('detail', r)} filters={filters} setFilters={setFilters} search={search} setSearch={setSearch} onFilter={() => go('filter')} sort={sort} setSort={setSort} />}
+          {screen === 'detail' && sel && <DetailScreen r={sel} onBack={() => go('list')} onEdit={() => go('edit', sel)} onDelete={handleDelete} onRate={handleRate} />}
+          {screen === 'add' && <RecipeForm onBack={() => go('list')} onSave={handleSave} />}
+          {screen === 'edit' && sel && <RecipeForm initial={sel} onBack={() => go('detail', sel)} onSave={handleUpdate} onSaveLabel="Actualizar" />}
+          {screen === 'filter' && <FilterScreen filters={filters} setFilters={setFilters} onBack={() => go('list')} />}
+        </>
+      )}
+
+      {/* Bottom tab bar */}
+      {!hideBottomNav && (
+        <div style={{ flexShrink: 0, background: C.surface, borderTop: `0.5px solid ${C.border}`, display: 'flex', zIndex: 30 }}>
+          {[{ id: 'recipes', label: 'Recetas', icon: 'book' }, { id: 'planner', label: 'Planificar', icon: 'calendar' }].map(tab => (
+            <button key={tab.id} onClick={() => { setActiveTab(tab.id); if (tab.id === 'recipes' && screen === 'list') {} }} style={{ flex: 1, padding: '10px 0 16px', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+              <Icon name={tab.icon} size={22} color={activeTab === tab.id ? C.green : C.textMuted} />
+              <span style={{ fontSize: 10, fontWeight: 600, color: activeTab === tab.id ? C.green : C.textMuted, letterSpacing: '0.04em' }}>{tab.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
