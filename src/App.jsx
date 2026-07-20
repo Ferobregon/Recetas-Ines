@@ -586,6 +586,7 @@ function PlannerScreen({ recipes }) {
   const [showShare, setShowShare] = useState(false)
   const [showShopping, setShowShopping] = useState(false)
   const [dayServingsMap, setDayServingsMap] = useState({})
+  const [showBotanaMap, setShowBotanaMap] = useState({})
   const [suggesting, setSuggesting] = useState(false)
   const [loading, setLoading] = useState(true)
 
@@ -730,7 +731,7 @@ function PlannerScreen({ recipes }) {
                 <button onClick={() => changeDayServings(dayServings + 1)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 17, color: C.textSec, lineHeight: 1, padding: '0 2px' }}>+</button>
               </div>
             </div>
-            {MEALS.map(({ key: mealType, label, icon }) => {
+            {MEALS.filter(m => m.key !== 'botana' || showBotanaMap[selectedDate]).map(({ key: mealType, label, icon }) => {
               const daySlots = getDaySlots(selectedDate, mealType)
               const mc = MT[mealType] || { bg: C.greenBg, tx: C.greenDark, ac: C.green }
               return (
@@ -765,6 +766,11 @@ function PlannerScreen({ recipes }) {
                 </div>
               )
             })}
+            {!showBotanaMap[selectedDate] && (
+              <button onClick={() => setShowBotanaMap(prev => ({ ...prev, [selectedDate]: true }))} style={{ width: '100%', padding: '10px', background: 'none', border: `0.5px dashed ${C.border}`, borderRadius: 12, cursor: 'pointer', color: C.textMuted, fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 10 }}>
+                <span>🍎</span> Agregar botana a este día
+              </button>
+            )}
             {hasAny && (
               <div style={{ marginTop: 6, marginBottom: 80, display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <button onClick={() => setShowShare(true)} style={{ ...S.btn(C.green, '#fff'), display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
