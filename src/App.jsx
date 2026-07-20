@@ -280,7 +280,14 @@ function RecipeForm({initial,onBack,onSave,onSaveLabel='Guardar'}){
     try{
       let photoUrl=f.photo_url
       if(photoFile)photoUrl=await uploadPhoto(photoFile)
-      const recipe={...f,photo_url:photoUrl,times_made:f.times_made||0}
+      const toInt=(v,def=0)=>v===''||v==null?def:Number(v)||def
+      const recipe={...f,
+        photo_url:photoUrl,
+        times_made:f.times_made||0,
+        prep_time:toInt(f.prep_time),
+        cook_time:toInt(f.cook_time),
+        servings:toInt(f.servings,2)
+      }
       delete recipe.id
       await onSave(recipe)
     }catch(e){setErr('Error al guardar. Intenta de nuevo.');setSaving(false)}
