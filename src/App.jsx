@@ -54,12 +54,17 @@ function fmtDayNum(dateStr) { return new Date(dateStr + 'T12:00:00').getDate() }
 // ── SUGGESTION ALGORITHM ──────────────────────────────────────────────────
 
 function suggestMenuSlots(recipes, history, days, existingSlots) {
-  const usedThisWeek = new Set(existingSlots.map(s => s.recipe_id).filter(Boolean))
+  // recentIds: from meal_history — prefer not repeating what was eaten in last 2 weeks
   const recentIds = new Set(history.map(h => h.recipe_id).filter(Boolean))
   let indulgenteCount = existingSlots.filter(s => recipes.find(r => r.id === s.recipe_id)?.health_tag === 'indulgente').length
   const newSlots = []
 
   for (const date of days) {
+    // usedToday: block reuse WITHIN the same day only (allows same recipe on different days)
+    const usedToday = new Set(
+      [...existingSlots, ...newSlots].filter(s => s.date === date).map(s => s.recipe_id).filter(Boolean)
+    )
+
     for (const mealType of ['desayuno', 'comida', 'cena']) {
       const alreadyInExisting = existingSlots.filter(s => s.date === date && s.meal_type === mealType).length
       const alreadyInNew = newSlots.filter(s => s.date === date && s.meal_type === mealType).length
@@ -72,8 +77,9 @@ function suggestMenuSlots(recipes, history, days, existingSlots) {
         const catPref = mealType === 'comida' && (totalSoFar + n) === 0 ? 'plato fuerte'
           : mealType === 'comida' && (totalSoFar + n) === 1 ? 'verdura' : null
 
-        let pool = recipes.filter(r => r.moment_tags?.includes(mealType) && !usedThisWeek.has(r.id))
+        let pool = recipes.filter(r => r.moment_tags?.includes(mealType) && !usedToday.has(r.id))
         if (catPref) { const cp = pool.filter(r => r.category_tags?.includes(catPref)); if (cp.length > 0) pool = cp }
+        // Prefer not recently eaten, but don't block entirely if that leaves nothing
         const notRecent = pool.filter(r => !recentIds.has(r.id))
         if (notRecent.length >= 1) pool = notRecent
         if (indulgenteCount >= 3) { const h = pool.filter(r => r.health_tag !== 'indulgente'); if (h.length > 0) pool = h }
@@ -88,7 +94,7 @@ function suggestMenuSlots(recipes, history, days, existingSlots) {
         for (let i = 0; i < top.length; i++) { rand -= weights[i]; if (rand <= 0) { picked = top[i]; break } }
 
         newSlots.push({ date, meal_type: mealType, recipe_id: picked.id, slot_order: totalSoFar + n })
-        usedThisWeek.add(picked.id)
+        usedToday.add(picked.id)
         if (picked.health_tag === 'indulgente') indulgenteCount++
       }
     }
