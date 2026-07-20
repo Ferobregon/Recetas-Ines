@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { uploadPhoto, fetchRecipes, insertRecipe, updateRecipe, deleteRecipe, updateRating, fetchOrCreateWeeklyMenu, fetchMenuSlots, addMenuSlot, removeMenuSlot, fetchRecentMealHistory, fetchPantryItems, addPantryItem, removePantryItem, clearPantryItems, updateDayServings } from './supabase.js'
+import { uploadPhoto, fetchRecipes, insertRecipe, updateRecipe, deleteRecipe, updateRating, fetchOrCreateWeeklyMenu, fetchMenuSlots, addMenuSlot, removeMenuSlot, fetchRecentMealHistory, fetchPantryItems, addPantryItem, removePantryItem, clearPantryItems, updateWeekMenuServings } from './supabase.js'
 import { useRegisterSW } from 'virtual:pwa-register/react'
 
 const C = { bg: '#F5F0E8', surface: '#FFFDF9', border: '#E8DED0', green: '#4A7C59', greenBg: '#EDF4EF', greenDark: '#2D5238', amber: '#B8763A', amberBg: '#FDF4E8', text: '#2C2416', textSec: '#7A6E5F', textMuted: '#B0A090', danger: '#C0392B' }
@@ -239,14 +239,14 @@ function matchRecipes(recipes, pantryItems) {
 
 // ── SHOPPING LIST ─────────────────────────────────────────────────────────
 
-function ShoppingListScreen({ weekDays, slots, recipes, onClose }) {
+function ShoppingListScreen({ weekDays, slots, recipes, dayServingsMap, onClose }) {
   const [checked, setChecked] = useState(new Set())
   const weekStart = weekDays[0], weekEnd = weekDays[6]
   const weekLabel = `${fmtDate(weekStart, { day: 'numeric', month: 'short' })} – ${fmtDate(weekEnd, { day: 'numeric', month: 'short' })}`
   const scaledIngGroups = slots.map(slot => {
     const recipe = recipes.find(r => r.id === slot.recipe_id)
     if (!recipe) return []
-    const scale = (recipe.servings || 2) > 0 ? (slot.servings ?? 2) / (recipe.servings || 2) : 1
+    const scale = (recipe.servings || 2) > 0 ? (dayServingsMap[slot.date] ?? 2) / (recipe.servings || 2) : 1
     return (recipe.ingredients || []).map(ing => {
       const qty = parseQty(ing.q)
       return { ...ing, q: qty !== null ? String(Math.round(qty * scale * 100) / 100) : ing.q }
@@ -585,6 +585,7 @@ function PlannerScreen({ recipes }) {
   const [showPicker, setShowPicker] = useState(null)
   const [showShare, setShowShare] = useState(false)
   const [showShopping, setShowShopping] = useState(false)
+  const [dayServingsMap, setDayServingsMap] = useState({})
   const [suggesting, setSuggesting] = useState(false)
   const [loading, setLoading] = useState(true)
 
@@ -612,6 +613,7 @@ function PlannerScreen({ recipes }) {
         fetchRecentMealHistory(14)
       ])
       setCurrentMenu(menu)
+      setDayServingsMap(menu.day_servings || {})
       setMealHistory(history)
       const ms = await fetchMenuSlots(menu.id)
       setSlots(ms)
@@ -658,11 +660,13 @@ function PlannerScreen({ recipes }) {
   const getRecipe = id => recipes.find(r => r.id === id)
   const totalFilled = slots.length
   const hasAny = weekDays.some(d => MEALS.some(m => getDaySlots(d, m.key).length > 0))
-  const dayServings = slots.find(s => s.date === selectedDate)?.servings ?? 2
+  const dayServings = dayServingsMap[selectedDate] ?? 2
   const changeDayServings = async (n) => {
-    if (!currentMenu) return
-    setSlots(prev => prev.map(s => s.date === selectedDate ? { ...s, servings: n } : s))
-    try { await updateDayServings(currentMenu.id, selectedDate, n) } catch (e) { console.error(e) }
+    const newMap = { ...dayServingsMap, [selectedDate]: n }
+    setDayServingsMap(newMap)
+    if (currentMenu) {
+      try { await updateWeekMenuServings(currentMenu.id, newMap) } catch (e) { console.error(e) }
+    }
   }
 
   return (
@@ -777,7 +781,7 @@ function PlannerScreen({ recipes }) {
 
       {showPicker && <RecipePickerModal mealType={showPicker.meal_type} recipes={recipes} onPick={handleAddSlot} onClose={() => setShowPicker(null)} />}
       {showShare && <ShareModal weekDays={weekDays} slots={slots} recipes={recipes} onClose={() => setShowShare(false)} />}
-      {showShopping && <ShoppingListScreen weekDays={weekDays} slots={slots} recipes={recipes} onClose={() => setShowShopping(false)} />}
+      {showShopping && <ShoppingListScreen weekDays={weekDays} slots={slots} recipes={recipes} dayServingsMap={dayServingsMap} onClose={() => setShowShopping(false)} />}
     </div>
   )
 }
