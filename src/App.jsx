@@ -153,17 +153,70 @@ function categorizeIngredient(name) {
   return 'Otros'
 }
 
+function parseQty(q) {
+  if (q === null || q === undefined || q === '') return null
+  const s = String(q).trim()
+  const range = s.match(/^(\d+\.?\d*)\s*-\s*(\d+\.?\d*)$/)
+  if (range) return (parseFloat(range[1]) + parseFloat(range[2])) / 2
+  const n = parseFloat(s.replace(',', '.'))
+  return isNaN(n) ? null : n
+}
+
+function normalizeIngKey(name) {
+  // Remove accents and lowercase
+  let n = name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim()
+  // Strip leading container/measure words
+  n = n.replace(/^(hojas?\s+de\s+|dientes?\s+de\s+|bonch[eo]\s+(grande\s+)?de\s+|manojos?\s+de\s+|ramas?\s+de\s+|tallos?\s+de\s+|pizca\s+de\s+|pizca\s+)/, '')
+  // Take only part before first comma
+  n = n.split(',')[0].trim()
+  // Strip trailing descriptors iteratively
+  const trailing = [
+    /\s+o\s+\S.*$/,
+    /\s+finamente$/,
+    /\s+o\s+m[aá]s$/,
+    /\s+picad[oa]s?$/,
+    /\s+rallad[oa]s?$/,
+    /\s+trocead[oa]s?$/,
+    /\s+rebanad[oa]s?$/,
+    /\s+en\s+(cubos|plumas|rodajas|tiras|julianas|cuartos|brunoise)$/,
+    /\s+sin\s+\w+(\s+\w+)?$/,
+    /\s+(fresc[oa]s?|sec[oa]s?|cocid[oa]s?|crud[oa]s?)$/,
+    /\s+con\s+\w+(\s+\w+)?$/,
+  ]
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const p of trailing) {
+      const r = n.replace(p, '').trim()
+      if (r && r !== n) { n = r; changed = true; break }
+    }
+  }
+  return n
+}
+
 function consolidateIngredients(recipes) {
   const map = {}
   for (const recipe of recipes) {
     for (const ing of (recipe.ingredients || [])) {
-      const name = (ing.n || ing.name || '').trim()
-      if (!name) continue
-      const key = name.toLowerCase()
-      if (!map[key]) map[key] = { name, q: ing.q || '', u: ing.u || '', category: categorizeIngredient(name) }
+      const rawName = (ing.n || ing.name || '').trim()
+      if (!rawName) continue
+      const key = normalizeIngKey(rawName)
+      if (!key) continue
+      const qty = parseQty(ing.q)
+      if (!map[key]) {
+        const displayName = key.charAt(0).toUpperCase() + key.slice(1)
+        map[key] = { name: displayName, q: qty, u: ing.u || '', category: categorizeIngredient(rawName) }
+      } else {
+        // Sum quantities when both are numeric
+        if (qty !== null && map[key].q !== null) map[key].q += qty
+        else if (qty !== null && map[key].q === null) map[key].q = qty
+      }
     }
   }
-  return Object.values(map).sort((a, b) => a.name.localeCompare(b.name, 'es'))
+  return Object.values(map).map(ing => ({
+    ...ing,
+    q: ing.q !== null ? (ing.q % 1 === 0 ? String(ing.q) : parseFloat(ing.q.toFixed(2)).toString()) : ''
+  })).sort((a, b) => a.name.localeCompare(b.name, 'es'))
 }
 
 function matchRecipes(recipes, pantryItems) {
