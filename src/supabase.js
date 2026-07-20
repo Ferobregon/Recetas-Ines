@@ -126,8 +126,8 @@ export async function clearPantryItems() {
   if (error) throw error
 }
 
-export async function updateDayServings(menu_id, date, servings) {
+export async function updateWeekMenuServings(id, day_servings) {
   const { error } = await supabase
-    .from('menu_slots').update({ servings }).eq('menu_id', menu_id).eq('date', date)
+    .from('weekly_menus').update({ day_servings }).eq('id', id)
   if (error) throw error
 }
