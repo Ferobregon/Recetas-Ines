@@ -14,9 +14,20 @@ export async function uploadPhoto(file) {
   return data.publicUrl
 }
 
+// Lite: solo campos necesarios para la lista (mucho más rápido con muchas recetas)
 export async function fetchRecipes() {
   const { data, error } = await supabase
-    .from('recipes').select('*').order('created_at', { ascending: false })
+    .from('recipes')
+    .select('id,title,description,photo_url,moment_tags,category_tags,other_tags,health_tag,audience_tags,rating,is_simple,servings,times_made,created_at')
+    .order('created_at', { ascending: false })
+  if (error) throw error
+  return data
+}
+
+// Full: todos los campos, se carga solo al abrir una receta
+export async function fetchRecipeFull(id) {
+  const { data, error } = await supabase
+    .from('recipes').select('*').eq('id', id).single()
   if (error) throw error
   return data
 }
