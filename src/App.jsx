@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { uploadPhoto, fetchRecipes, fetchRecipeFull, insertRecipe, updateRecipe, deleteRecipe, updateRating, fetchOrCreateWeeklyMenu, fetchMenuSlots, addMenuSlot, removeMenuSlot, fetchRecentMealHistory, fetchPantryItems, addPantryItem, removePantryItem, clearPantryItems, updateWeekMenuServings, fetchCustomTags, insertCustomTag, updateCustomTag, deleteCustomTag } from './supabase.js'
+import { uploadPhoto, fetchRecipes, fetchRecipeFull, insertRecipe, updateRecipe, deleteRecipe, updateRating, fetchOrCreateWeeklyMenu, fetchMenuSlots, addMenuSlot, removeMenuSlot, fetchRecentMealHistory, fetchPantryItems, addPantryItem, removePantryItem, clearPantryItems, updateWeekMenuServings, fetchCustomTags, insertCustomTag, updateCustomTag, deleteCustomTag, fetchUnits, insertUnit, deleteUnit } from './supabase.js'
 import { useRegisterSW } from 'virtual:pwa-register/react'
 
 const C = { bg: '#F5F0E8', surface: '#FFFDF9', border: '#E8DED0', green: '#4A7C59', greenBg: '#EDF4EF', greenDark: '#2D5238', amber: '#B8763A', amberBg: '#FDF4E8', text: '#2C2416', textSec: '#7A6E5F', textMuted: '#B0A090', danger: '#C0392B' }
@@ -471,6 +471,7 @@ const Icon = ({ name, size = 20, color = 'currentColor', style: st }) => (
     {name === 'share' && <><circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><line x1="8.59" y1="13.51" x2="15.42" y2="17.49" /><line x1="15.41" y1="6.51" x2="8.59" y2="10.49" /></>}
     {name === 'fridge' && <><path d="M5 2h14a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="2" x2="9" y2="9"/><line x1="8" y1="14" x2="10" y2="14"/></>}
     {name === 'cart' && <><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></>}
+    {name === 'settings' && <><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></>}
   </svg>
 )
 const StarRating = ({ value, onChange, size = 24, gap = 4 }) => (
@@ -917,6 +918,102 @@ function TagsScreen({ customTags, onSave, onDelete, onBack }) {
   )
 }
 
+
+// ── SETTINGS ──────────────────────────────────────────────────────────────
+
+function SettingsScreen({ onBack, onTags, onUnits }) {
+  const items = [
+    { icon: '🏷', title: 'Gestionar etiquetas', desc: 'Agregar, editar y eliminar etiquetas de recetas', action: onTags },
+    { icon: '📏', title: 'Gestionar unidades', desc: 'Personalizar la lista de unidades de medida', action: onUnits },
+  ]
+  return (
+    <div style={S.screen}>
+      <div style={{ ...S.header, display: 'flex', alignItems: 'center', gap: 12 }}>
+        <button onClick={onBack} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}><Icon name="back" size={22} color={C.text} /></button>
+        <h2 style={{ fontSize: 20, fontWeight: 700, color: C.text, fontFamily: serif }}>Ajustes</h2>
+      </div>
+      <div style={{ ...S.scroll, padding: '16px 20px', background: C.bg }}>
+        {items.map(item => (
+          <div key={item.title} onClick={item.action} style={{ background: C.surface, borderRadius: 16, border: `0.5px solid ${C.border}`, padding: '16px', marginBottom: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 14 }}>
+            <div style={{ width: 44, height: 44, borderRadius: 12, background: C.greenBg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0 }}>{item.icon}</div>
+            <div style={{ flex: 1 }}>
+              <p style={{ fontWeight: 600, fontSize: 15, color: C.text, margin: 0, fontFamily: serif }}>{item.title}</p>
+              <p style={{ fontSize: 12, color: C.textMuted, margin: '3px 0 0' }}>{item.desc}</p>
+            </div>
+            <Icon name="back" size={16} color={C.border} style={{ transform: 'rotate(180deg)' }} />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function UnitsScreen({ units, onSave, onDelete, onBack }) {
+  const [input, setInput] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [delConfirm, setDelConfirm] = useState(null)
+
+  const handleAdd = async () => {
+    const label = input.trim()
+    if (!label || units.find(u => u.label.toLowerCase() === label.toLowerCase())) return
+    setSaving(true)
+    try { const saved = await insertUnit(label); onSave(saved); setInput('') } catch (e) { console.error(e) }
+    setSaving(false)
+  }
+
+  const handleDelete = async (unit) => {
+    try { await deleteUnit(unit.id); onDelete(unit.id); setDelConfirm(null) } catch (e) { console.error(e) }
+  }
+
+  const defaults = units.filter(u => u.is_default)
+  const custom = units.filter(u => !u.is_default)
+
+  return (
+    <div style={S.screen}>
+      <div style={{ ...S.header, display: 'flex', alignItems: 'center', gap: 12 }}>
+        <button onClick={onBack} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}><Icon name="back" size={22} color={C.text} /></button>
+        <h2 style={{ fontSize: 20, fontWeight: 700, color: C.text, fontFamily: serif }}>Unidades de medida</h2>
+      </div>
+      <div style={{ ...S.scroll, padding: '16px 20px', background: C.bg }}>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+          <input style={{ ...S.input, flex: 1 }} type="text" value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAdd()} placeholder="Nueva unidad... ej. manojo, rama, lb" />
+          <button onClick={handleAdd} disabled={saving || !input.trim()} style={{ background: C.green, color: '#fff', border: 'none', borderRadius: 12, padding: '0 20px', fontSize: 22, cursor: 'pointer', flexShrink: 0, opacity: (!input.trim() || saving) ? 0.5 : 1 }}>+</button>
+        </div>
+        {custom.length > 0 && <>
+          <span style={S.sec}>Personalizadas</span>
+          <div style={{ background: C.surface, borderRadius: 16, border: `0.5px solid ${C.border}`, overflow: 'hidden', marginBottom: 20 }}>
+            {custom.map((unit, i) => (
+              <div key={unit.id} style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: i < custom.length - 1 ? `0.5px solid ${C.border}` : 'none' }}>
+                <span style={{ fontSize: 14, fontWeight: 600, color: C.text }}>{unit.label}</span>
+                <button onClick={() => setDelConfirm(unit)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}><Icon name="trash" size={16} color={C.danger} /></button>
+              </div>
+            ))}
+          </div>
+        </>}
+        <span style={S.sec}>Predefinidas</span>
+        <div style={{ background: C.surface, borderRadius: 16, border: `0.5px solid ${C.border}`, overflow: 'hidden', marginBottom: 40 }}>
+          {defaults.map((unit, i) => (
+            <div key={unit.id} style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: i < defaults.length - 1 ? `0.5px solid ${C.border}` : 'none' }}>
+              <span style={{ fontSize: 14, color: C.text }}>{unit.label}</span>
+              <button onClick={() => setDelConfirm(unit)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}><Icon name="trash" size={16} color={C.textMuted} /></button>
+            </div>
+          ))}
+        </div>
+      </div>
+      {delConfirm && (
+        <div style={{ position: 'absolute', inset: 0, background: 'rgba(44,36,22,.5)', display: 'flex', alignItems: 'flex-end', zIndex: 50 }}>
+          <div style={{ background: C.surface, width: '100%', borderRadius: '20px 20px 0 0', padding: 24 }}>
+            <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8, color: C.text, fontFamily: serif }}>Eliminar unidad</h3>
+            <p style={{ color: C.textSec, marginBottom: 20, fontSize: 14, lineHeight: 1.5 }}>¿Eliminar "{delConfirm.label}"? Las recetas que la usen no se ven afectadas.</p>
+            <button style={{ ...S.btn(C.danger, '#fff'), marginBottom: 10 }} onClick={() => handleDelete(delConfirm)}>Sí, eliminar</button>
+            <button style={S.btn(C.border, C.text)} onClick={() => setDelConfirm(null)}>Cancelar</button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── RECIPE COMPONENTS ─────────────────────────────────────────────────────
 
 function RecipeCard({ r, onClick }) {
@@ -943,7 +1040,7 @@ function RecipeCard({ r, onClick }) {
   )
 }
 
-function ListScreen({ recipes, loading, onAdd, onSel, filters, setFilters, search, setSearch, onFilter, sort, setSort }) {
+function ListScreen({ recipes, loading, onAdd, onSel, filters, setFilters, search, setSearch, onFilter, sort, setSort, onSettings }) {
   const active = Object.values(filters).flat()
   const list = recipes.filter(r => {
     if (search && !r.title.toLowerCase().includes(search.toLowerCase()) && !r.description?.toLowerCase().includes(search.toLowerCase())) return false
@@ -958,9 +1055,12 @@ function ListScreen({ recipes, loading, onAdd, onSel, filters, setFilters, searc
   return (
     <div style={S.screen}>
       <div style={S.header}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 14 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
           <h1 style={{ fontSize: 26, fontWeight: 700, color: C.text, fontFamily: serif, letterSpacing: '-0.3px' }}>Mis recetas</h1>
-          <span style={{ fontSize: 13, color: C.textMuted }}>{recipes.length} guardadas</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 13, color: C.textMuted }}>{recipes.length} guardadas</span>
+            <button onClick={onSettings} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, display: 'flex', alignItems: 'center' }}><Icon name="settings" size={20} color={C.textMuted} /></button>
+          </div>
         </div>
         <div style={{ position: 'relative' }}>
           <Icon name="search" size={16} color={C.textMuted} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
@@ -1126,7 +1226,7 @@ function FilterScreen({ filters, setFilters, onBack, customTags, onManageTags })
 
 const BLANK = { title: '', description: '', ingredients: [{ n: '', q: '', u: '' }], steps: [''], source_type: 'manual', source_author: '', servings: 2, prep_time: '', cook_time: '', is_simple: false, moment_tags: [], category_tags: [], audience_tags: ['todos'], health_tag: 'balanceado', other_tags: [], photo_url: null, notes: '' }
 
-function RecipeForm({ initial, onBack, onSave, onSaveLabel = 'Guardar', customTags = [] }) {
+function RecipeForm({ initial, onBack, onSave, onSaveLabel = 'Guardar', customTags = [], units = [] }) {
   const [flow, setFlow] = useState(initial ? 'form' : 'src')
   const [f, setF] = useState(initial ? { ...initial, ingredients: initial.ingredients?.length ? initial.ingredients : [{ n: '', q: '', u: '' }], steps: initial.steps?.length ? initial.steps : [''], moment_tags: initial.moment_tags || [], category_tags: initial.category_tags || [], audience_tags: initial.audience_tags || ['todos'], other_tags: initial.other_tags || [] } : { ...BLANK })
   const [err, setErr] = useState('')
@@ -1294,7 +1394,7 @@ function RecipeForm({ initial, onBack, onSave, onSaveLabel = 'Guardar', customTa
               <input style={{ ...S.input, width: 52 }} type="text" value={g.q} onChange={e => updI(i, 'q', e.target.value)} placeholder="Cant." />
               <select style={{ ...S.input, flex: 1, cursor: 'pointer', WebkitAppearance: 'none', appearance: 'none', paddingRight: 6 }} value={g.u || ''} onChange={e => updI(i, 'u', e.target.value)}>
                 <option value="">-</option>
-                {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+                {(units.length > 0 ? units : UNITS.map(u => ({ label: u }))).map(u => <option key={u.id || u.label} value={u.label}>{u.label}</option>)}
               </select>
               {f.ingredients.length > 1 && <button onClick={() => delI(i)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.danger, padding: 4, flexShrink: 0 }}><Icon name="x" size={16} color={C.danger} /></button>}
             </div>
@@ -1338,10 +1438,12 @@ export default function App() {
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState('alpha')
   const [customTags, setCustomTags] = useState([])
+  const [units, setUnits] = useState([])
 
   useEffect(() => {
     fetchRecipes().then(setRecipes).catch(console.error).finally(() => setLoading(false))
     fetchCustomTags().then(tags => { setCustomTags(tags); _ctCache = tags }).catch(console.error)
+    fetchUnits().then(setUnits).catch(console.error)
   }, [])
 
   // Lazy-load full recipe when opening detail or edit (initial load only fetches lite fields)
@@ -1360,7 +1462,7 @@ export default function App() {
   const handleDelete = async () => { await deleteRecipe(sel.id); setRecipes(p => p.filter(r => r.id !== sel.id)); go('list') }
   const handleRate = async (rating) => { const updated = await updateRating(sel.id, rating); setRecipes(p => p.map(r => r.id === sel.id ? updated : r)); setSel(updated) }
 
-  const hideBottomNav = ['add', 'edit', 'filter', 'tags'].includes(screen) && activeTab === 'recipes'
+  const hideBottomNav = ['add', 'edit', 'filter', 'tags', 'settings', 'units'].includes(screen) && activeTab === 'recipes'
 
   return (
     <div style={S.app}>
@@ -1378,11 +1480,13 @@ export default function App() {
         <PlannerScreen recipes={recipes} />
       ) : (
         <>
-          {screen === 'list' && <ListScreen recipes={recipes} loading={loading} onAdd={() => go('add')} onSel={r => go('detail', r)} filters={filters} setFilters={setFilters} search={search} setSearch={setSearch} onFilter={() => go('filter')} sort={sort} setSort={setSort} />}
+          {screen === 'list' && <ListScreen recipes={recipes} loading={loading} onAdd={() => go('add')} onSel={r => go('detail', r)} filters={filters} setFilters={setFilters} search={search} setSearch={setSearch} onFilter={() => go('filter')} sort={sort} setSort={setSort} onSettings={() => go('settings')} />}
           {screen === 'detail' && sel && <DetailScreen r={sel} onBack={() => go('list')} onEdit={() => go('edit', sel)} onDelete={handleDelete} onRate={handleRate} />}
-          {screen === 'add' && <RecipeForm onBack={() => go('list')} onSave={handleSave} customTags={customTags} />}
-          {screen === 'edit' && sel && <RecipeForm initial={sel} onBack={() => go('detail', sel)} onSave={handleUpdate} onSaveLabel="Actualizar" customTags={customTags} />}
+          {screen === 'add' && <RecipeForm onBack={() => go('list')} onSave={handleSave} customTags={customTags} units={units} />}
+          {screen === 'edit' && sel && <RecipeForm initial={sel} onBack={() => go('detail', sel)} onSave={handleUpdate} onSaveLabel="Actualizar" customTags={customTags} units={units} />}
           {screen === 'filter' && <FilterScreen filters={filters} setFilters={setFilters} onBack={() => go('list')} customTags={customTags} onManageTags={() => go('tags')} />}
+          {screen === 'settings' && <SettingsScreen onBack={() => go('list')} onTags={() => go('tags')} onUnits={() => go('units')} />}
+          {screen === 'units' && <UnitsScreen units={units} onBack={() => go('settings')} onSave={u => setUnits(p => [u, ...p])} onDelete={id => setUnits(p => p.filter(u => u.id !== id))} />}
           {screen === 'tags' && <TagsScreen customTags={customTags} onBack={() => go('filter')} onSave={(tag, op) => { const updated = op === 'update' ? customTags.map(t => t.id === tag.id ? tag : t) : [...customTags, tag]; setCustomTags(updated); _ctCache = updated }} onDelete={id => { const updated = customTags.filter(t => t.id !== id); setCustomTags(updated); _ctCache = updated }} />}
         </>
       )}
