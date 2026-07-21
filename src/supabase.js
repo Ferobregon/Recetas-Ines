@@ -162,3 +162,19 @@ export async function deleteCustomTag(id) {
   const { error } = await supabase.from('custom_tags').delete().eq('id', id)
   if (error) throw error
 }
+
+export async function fetchUnits() {
+  const { data, error } = await supabase.from('custom_units').select('*')
+    .order('is_default', { ascending: false }).order('created_at')
+  if (error) throw error
+  return data || []
+}
+export async function insertUnit(label) {
+  const { data, error } = await supabase.from('custom_units').insert([{ label: label.trim() }]).select().single()
+  if (error) throw error
+  return data
+}
+export async function deleteUnit(id) {
+  const { error } = await supabase.from('custom_units').delete().eq('id', id)
+  if (error) throw error
+}
