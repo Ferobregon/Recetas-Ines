@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { uploadPhoto, fetchRecipes, insertRecipe, updateRecipe, deleteRecipe, updateRating, fetchOrCreateWeeklyMenu, fetchMenuSlots, addMenuSlot, removeMenuSlot, fetchRecentMealHistory, fetchPantryItems, addPantryItem, removePantryItem, clearPantryItems, updateWeekMenuServings, fetchCustomTags, insertCustomTag, updateCustomTag, deleteCustomTag } from './supabase.js'
+import { uploadPhoto, fetchRecipes, fetchRecipeFull, insertRecipe, updateRecipe, deleteRecipe, updateRating, fetchOrCreateWeeklyMenu, fetchMenuSlots, addMenuSlot, removeMenuSlot, fetchRecentMealHistory, fetchPantryItems, addPantryItem, removePantryItem, clearPantryItems, updateWeekMenuServings, fetchCustomTags, insertCustomTag, updateCustomTag, deleteCustomTag } from './supabase.js'
 import { useRegisterSW } from 'virtual:pwa-register/react'
 
 const C = { bg: '#F5F0E8', surface: '#FFFDF9', border: '#E8DED0', green: '#4A7C59', greenBg: '#EDF4EF', greenDark: '#2D5238', amber: '#B8763A', amberBg: '#FDF4E8', text: '#2C2416', textSec: '#7A6E5F', textMuted: '#B0A090', danger: '#C0392B' }
@@ -26,14 +26,16 @@ const TAG_COLORS = [
 ]
 let _ctCache = []
 const getTagStyle = (label) => {
+  // Custom/DB tags take precedence (allows overriding default colors)
+  const c = _ctCache.find(t => t.label === label)
+  if (c) return { bg: c.color_bg, tx: c.color_tx }
   if (MT[label]) return { bg: MT[label].bg, tx: MT[label].tx }
   if (HT[label]) return { bg: HT[label].bg, tx: HT[label].tx }
   if (label === 'fer' || label === 'inés' || label === 'todos') return { bg: '#F0EDF8', tx: '#4A3A7A' }
-  const c = _ctCache.find(t => t.label === label)
-  return c ? { bg: c.color_bg, tx: c.color_tx } : { bg: C.greenBg, tx: C.greenDark }
+  return { bg: C.greenBg, tx: C.greenDark }
 }
-const CAT_LABELS = { moment_tags: 'Momento del día', category_tags: 'Tipo de platillo', audience_tags: '¿Para quién?', health_tag: '¿Qué tan sano?' }
-const CAT_KEYS = ['moment_tags', 'category_tags', 'audience_tags', 'health_tag']
+const CAT_LABELS = { moment_tags: 'Momento del día', category_tags: 'Tipo de platillo', audience_tags: '¿Para quién?', health_tag: '¿Qué tan sano?', other_tags: 'Otras etiquetas' }
+const CAT_KEYS = ['moment_tags', 'category_tags', 'audience_tags', 'health_tag', 'other_tags']
 const CAT_FILTER_KEY = { moment_tags: 'mt', category_tags: 'ct', audience_tags: 'at', health_tag: 'ht' }
 const MEALS = [{ key: 'desayuno', label: 'Desayuno', icon: '☀️' }, { key: 'comida', label: 'Comida', icon: '🌞' }, { key: 'cena', label: 'Cena', icon: '🌙' }, { key: 'botana', label: 'Botana', icon: '🍎' }]
 const serif = `Georgia,'Palatino Linotype',serif`
@@ -824,8 +826,6 @@ function TagsScreen({ customTags, onSave, onDelete, onBack }) {
   const [editTag, setEditTag] = useState(null)
   const [saving, setSaving] = useState(false)
 
-  const DEFAULT_OPTS = { moment_tags: MTAGS, category_tags: CTAGS, audience_tags: ATAGS, health_tag: HTAGS }
-
   const openNew = (category) => setEditTag({ category, label: '', color_bg: TAG_COLORS[0].bg, color_tx: TAG_COLORS[0].tx })
   const openEdit = (tag) => setEditTag({ ...tag })
 
@@ -924,7 +924,7 @@ function RecipeCard({ r, onClick }) {
   return (
     <div style={S.card} onClick={onClick}>
       <div style={{ width: 68, height: 68, borderRadius: 14, flexShrink: 0, overflow: 'hidden', background: th ? th.bg + '88' : C.border, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        {r.photo_url ? <img src={r.photo_url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="" /> : <span style={{ fontSize: 28, fontWeight: 700, color: th ? th.ac : C.textMuted, fontFamily: serif }}>{r.title[0]}</span>}
+        {r.photo_url ? <img src={r.photo_url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="" loading="lazy" /> : <span style={{ fontSize: 28, fontWeight: 700, color: th ? th.ac : C.textMuted, fontFamily: serif }}>{r.title[0]}</span>}
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 3 }}>
@@ -936,6 +936,7 @@ function RecipeCard({ r, onClick }) {
           {r.moment_tags?.slice(0, 2).map(t => <Pill key={t} label={t} small bg={getTagStyle(t).bg} tx={getTagStyle(t).tx} />)}
           {r.health_tag && <Pill label={r.health_tag} small bg={getTagStyle(r.health_tag).bg} tx={getTagStyle(r.health_tag).tx} />}
           {r.is_simple && <Pill label="receta simple" small bg={C.border} tx={C.textMuted} />}
+          {r.other_tags?.slice(0,1).map(t => <Pill key={t} label={t} small bg={getTagStyle(t).bg} tx={getTagStyle(t).tx} />)}
         </div>
       </div>
     </div>
@@ -950,6 +951,7 @@ function ListScreen({ recipes, loading, onAdd, onSel, filters, setFilters, searc
     if (filters.ct?.length && !filters.ct.some(t => r.category_tags?.includes(t))) return false
     if (filters.at?.length && !filters.at.some(t => r.audience_tags?.includes(t))) return false
     if (filters.ht?.length && !filters.ht.includes(r.health_tag)) return false
+    if (filters.ot?.length && !filters.ot.some(t => r.other_tags?.includes(t))) return false
     return true
   }).sort((a, b) => sort === 'rating' ? (b.rating || 0) - (a.rating || 0) : sort === 'alpha' ? a.title.localeCompare(b.title, 'es') : 0)
 
@@ -1034,6 +1036,7 @@ function DetailScreen({ r, onBack, onEdit, onDelete, onRate }) {
             {r.category_tags?.map(t => <Pill key={t} label={t} bg={C.border} tx={C.textSec} />)}
             {r.audience_tags?.map(t => <Pill key={t} label={t} bg='#F0EDF8' tx='#4A3A7A' />)}
             {r.health_tag && <Pill label={r.health_tag} bg={getTagStyle(r.health_tag).bg} tx={getTagStyle(r.health_tag).tx} />}
+            {r.other_tags?.map(t => <Pill key={t} label={t} bg={getTagStyle(t).bg} tx={getTagStyle(t).tx} />)}
           </div>
           <div style={{ padding: '16px 0', borderBottom: `0.5px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 14 }}>
             <StarRating value={localRating} onChange={handleRate} size={32} gap={6} />
@@ -1081,16 +1084,19 @@ function DetailScreen({ r, onBack, onEdit, onDelete, onRate }) {
 function FilterScreen({ filters, setFilters, onBack, customTags, onManageTags }) {
   const [loc, setLoc] = useState({ ...filters })
   const tog = (k, v) => setLoc(f => ({ ...f, [k]: (f[k] || []).includes(v) ? f[k].filter(x => x !== v) : [...(f[k] || []), v] }))
-  const FILTER_CAT = { mt: 'moment_tags', ct: 'category_tags', at: 'audience_tags', ht: 'health_tag' }
+  const FILTER_CAT = { mt: 'moment_tags', ct: 'category_tags', at: 'audience_tags', ht: 'health_tag', ot: 'other_tags' }
+  const FALLBACK_OPTS = { mt: MTAGS, ct: CTAGS, at: ATAGS, ht: HTAGS, ot: [] }
   const secs = [
-    { k: 'mt', label: 'Momento del día', opts: MTAGS, abg: t => getTagStyle(t).bg, atx: t => getTagStyle(t).tx },
-    { k: 'ct', label: 'Tipo de platillo', opts: CTAGS, abg: t => getTagStyle(t).bg, atx: t => getTagStyle(t).tx },
-    { k: 'at', label: '¿Para quién?', opts: ATAGS, abg: () => '#F0EDF8', atx: () => '#4A3A7A' },
-    { k: 'ht', label: 'Qué tan sano', opts: HTAGS, abg: t => getTagStyle(t).bg, atx: t => getTagStyle(t).tx },
+    { k: 'mt', label: 'Momento del día' },
+    { k: 'ct', label: 'Tipo de platillo' },
+    { k: 'at', label: '¿Para quién?' },
+    { k: 'ht', label: 'Qué tan sano' },
+    { k: 'ot', label: 'Otras etiquetas' },
   ].map(sec => {
-    const extra = (customTags || []).filter(t => t.category === FILTER_CAT[sec.k]).map(t => t.label)
-    return { ...sec, opts: [...sec.opts, ...extra] }
-  })
+    const dbOpts = (customTags || []).filter(t => t.category === FILTER_CAT[sec.k]).map(t => t.label)
+    const opts = dbOpts.length > 0 ? dbOpts : (FALLBACK_OPTS[sec.k] || [])
+    return { ...sec, opts, abg: t => getTagStyle(t).bg, atx: t => getTagStyle(t).tx }
+  }).filter(sec => sec.opts.length > 0)
   return (
     <div style={S.screen}>
       <div style={{ ...S.header, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -1118,11 +1124,11 @@ function FilterScreen({ filters, setFilters, onBack, customTags, onManageTags })
   )
 }
 
-const BLANK = { title: '', description: '', ingredients: [{ n: '', q: '', u: '' }], steps: [''], source_type: 'manual', source_author: '', servings: 2, prep_time: '', cook_time: '', is_simple: false, moment_tags: [], category_tags: [], audience_tags: ['todos'], health_tag: 'balanceado', photo_url: null, notes: '' }
+const BLANK = { title: '', description: '', ingredients: [{ n: '', q: '', u: '' }], steps: [''], source_type: 'manual', source_author: '', servings: 2, prep_time: '', cook_time: '', is_simple: false, moment_tags: [], category_tags: [], audience_tags: ['todos'], health_tag: 'balanceado', other_tags: [], photo_url: null, notes: '' }
 
 function RecipeForm({ initial, onBack, onSave, onSaveLabel = 'Guardar', customTags = [] }) {
   const [flow, setFlow] = useState(initial ? 'form' : 'src')
-  const [f, setF] = useState(initial ? { ...initial, ingredients: initial.ingredients?.length ? initial.ingredients : [{ n: '', q: '', u: '' }], steps: initial.steps?.length ? initial.steps : [''], moment_tags: initial.moment_tags || [], category_tags: initial.category_tags || [], audience_tags: initial.audience_tags || ['todos'] } : { ...BLANK })
+  const [f, setF] = useState(initial ? { ...initial, ingredients: initial.ingredients?.length ? initial.ingredients : [{ n: '', q: '', u: '' }], steps: initial.steps?.length ? initial.steps : [''], moment_tags: initial.moment_tags || [], category_tags: initial.category_tags || [], audience_tags: initial.audience_tags || ['todos'], other_tags: initial.other_tags || [] } : { ...BLANK })
   const [err, setErr] = useState('')
   const [saving, setSaving] = useState(false)
   const [photoPreview, setPhotoPreview] = useState(initial?.photo_url || null)
@@ -1247,24 +1253,35 @@ function RecipeForm({ initial, onBack, onSave, onSaveLabel = 'Guardar', customTa
         </div>
         <div style={{ padding: '16px 20px', background: C.surface, marginBottom: 8 }}>
           <p style={{ fontSize: 16, fontWeight: 700, color: C.text, margin: '0 0 16px', fontFamily: serif }}>Categorías</p>
-          {[{ label: 'Momento del día', k: 'moment_tags', defaults: MTAGS }, { label: 'Tipo de platillo', k: 'category_tags', defaults: CTAGS }].map(sec => {
-              const extra = (customTags || []).filter(t => t.category === sec.k).map(t => t.label)
-              const all = [...sec.defaults, ...extra]
+          {[
+              { label: 'Momento del día', k: 'moment_tags', fallback: MTAGS },
+              { label: 'Tipo de platillo', k: 'category_tags', fallback: CTAGS },
+            ].map(sec => {
+              const dbOpts = (customTags || []).filter(t => t.category === sec.k).map(t => t.label)
+              const opts = dbOpts.length > 0 ? dbOpts : sec.fallback
               return (
                 <div key={sec.k} style={{ marginBottom: 16 }}>
                   <span style={S.sec}>{sec.label}</span>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>{all.map(o => <Toggle key={o} label={o} active={f[sec.k].includes(o)} abg={getTagStyle(o).bg} atx={getTagStyle(o).tx} onClick={() => tog(sec.k, o)} />)}</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>{opts.map(o => <Toggle key={o} label={o} active={f[sec.k].includes(o)} abg={getTagStyle(o).bg} atx={getTagStyle(o).tx} onClick={() => tog(sec.k, o)} />)}</div>
                 </div>
               )
             })}
           <span style={S.sec}>¿Para quién?</span>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
-            {[...ATAGS, ...(customTags || []).filter(t => t.category === 'audience_tags').map(t => t.label)].map(o => <Toggle key={o} label={o} active={f.audience_tags.includes(o)} abg={getTagStyle(o).bg} atx={getTagStyle(o).tx} onClick={() => tog('audience_tags', o)} />)}
+            {(() => { const db = (customTags||[]).filter(t=>t.category==='audience_tags').map(t=>t.label); return (db.length>0?db:ATAGS).map(o => <Toggle key={o} label={o} active={f.audience_tags.includes(o)} abg={getTagStyle(o).bg} atx={getTagStyle(o).tx} onClick={() => tog('audience_tags', o)} />) })()}
           </div>
           <span style={S.sec}>¿Qué tan sano?</span>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {[...HTAGS, ...(customTags || []).filter(t => t.category === 'health_tag').map(t => t.label)].map(o => <Toggle key={o} label={o} active={f.health_tag === o} abg={getTagStyle(o).bg} atx={getTagStyle(o).tx} onClick={() => upd('health_tag', o)} />)}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+            {(() => { const db = (customTags||[]).filter(t=>t.category==='health_tag').map(t=>t.label); return (db.length>0?db:HTAGS).map(o => <Toggle key={o} label={o} active={f.health_tag===o} abg={getTagStyle(o).bg} atx={getTagStyle(o).tx} onClick={() => upd('health_tag', o)} />) })()}
           </div>
+          {(() => { const otOpts = (customTags||[]).filter(t=>t.category==='other_tags').map(t=>t.label); return otOpts.length > 0 ? (
+            <div style={{ marginBottom: 0 }}>
+              <span style={S.sec}>Otras etiquetas</span>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {otOpts.map(o => <Toggle key={o} label={o} active={(f.other_tags||[]).includes(o)} abg={getTagStyle(o).bg} atx={getTagStyle(o).tx} onClick={() => { const curr=f.other_tags||[]; upd('other_tags', curr.includes(o)?curr.filter(x=>x!==o):[...curr,o]) }} />)}
+              </div>
+            </div>
+          ) : null })()}
         </div>
         <div style={{ padding: '16px 20px', background: C.surface, marginBottom: 8 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
@@ -1317,7 +1334,7 @@ export default function App() {
   const [recipes, setRecipes] = useState([])
   const [loading, setLoading] = useState(true)
   const [sel, setSel] = useState(null)
-  const [filters, setFilters] = useState({ mt: [], ct: [], at: [], ht: [] })
+  const [filters, setFilters] = useState({ mt: [], ct: [], at: [], ht: [], ot: [] })
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState('alpha')
   const [customTags, setCustomTags] = useState([])
@@ -1326,6 +1343,16 @@ export default function App() {
     fetchRecipes().then(setRecipes).catch(console.error).finally(() => setLoading(false))
     fetchCustomTags().then(tags => { setCustomTags(tags); _ctCache = tags }).catch(console.error)
   }, [])
+
+  // Lazy-load full recipe when opening detail or edit (initial load only fetches lite fields)
+  useEffect(() => {
+    if ((screen === 'detail' || screen === 'edit') && sel?.id && !sel?.ingredients) {
+      fetchRecipeFull(sel.id).then(full => {
+        setSel(full)
+        setRecipes(p => p.map(r => r.id === full.id ? { ...r, ...full } : r))
+      }).catch(console.error)
+    }
+  }, [screen, sel?.id])
 
   const go = (s, d) => { if (d !== undefined) setSel(d); setScreen(s) }
   const handleSave = async (recipe) => { const saved = await insertRecipe(recipe); setRecipes(p => [saved, ...p]); go('list') }
