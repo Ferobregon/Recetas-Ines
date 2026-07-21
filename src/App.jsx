@@ -827,6 +827,7 @@ function TagsScreen({ customTags, onSave, onDelete, onBack }) {
   const [editTag, setEditTag] = useState(null)
   const [saving, setSaving] = useState(false)
 
+  const DEFAULT_OPTS = { moment_tags: MTAGS, category_tags: CTAGS, audience_tags: ATAGS, health_tag: HTAGS, other_tags: [] }
   const openNew = (category) => setEditTag({ category, label: '', color_bg: TAG_COLORS[0].bg, color_tx: TAG_COLORS[0].tx })
   const openEdit = (tag) => setEditTag({ ...tag })
 
@@ -862,8 +863,9 @@ function TagsScreen({ customTags, onSave, onDelete, onBack }) {
       </div>
       <div style={{ ...S.scroll, padding: '16px 20px', background: C.bg }}>
         {CAT_KEYS.map(cat => {
-          const defaults = DEFAULT_OPTS[cat] || []
-          const custom = customTags.filter(t => t.category === cat)
+          const catDB = customTags.filter(t => t.category === cat)
+          const defaults = catDB.length === 0 ? (DEFAULT_OPTS[cat] || []) : []
+          const custom = catDB
           return (
             <div key={cat} style={{ marginBottom: 24 }}>
               <span style={S.sec}>{CAT_LABELS[cat]}</span>
