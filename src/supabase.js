@@ -131,3 +131,23 @@ export async function updateWeekMenuServings(id, day_servings) {
     .from('weekly_menus').update({ day_servings }).eq('id', id)
   if (error) throw error
 }
+
+export async function fetchCustomTags() {
+  const { data, error } = await supabase.from('custom_tags').select('*').order('created_at')
+  if (error) throw error
+  return data || []
+}
+export async function insertCustomTag(tag) {
+  const { data, error } = await supabase.from('custom_tags').insert([tag]).select().single()
+  if (error) throw error
+  return data
+}
+export async function updateCustomTag(id, updates) {
+  const { data, error } = await supabase.from('custom_tags').update(updates).eq('id', id).select().single()
+  if (error) throw error
+  return data
+}
+export async function deleteCustomTag(id) {
+  const { error } = await supabase.from('custom_tags').delete().eq('id', id)
+  if (error) throw error
+}
