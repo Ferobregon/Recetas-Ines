@@ -1127,7 +1127,8 @@ function DetailScreen({ r, onBack, onEdit, onDelete, onRate }) {
         <div style={{ background: C.surface, padding: '20px 20px 0' }}>
           <h2 style={{ fontSize: 24, fontWeight: 700, color: C.text, fontFamily: serif, lineHeight: 1.2, marginBottom: 6 }}>{r.title}</h2>
           {r.description && <p style={{ fontSize: 14, color: C.textSec, marginBottom: 10, lineHeight: 1.6 }}>{r.description}</p>}
-          {r.source_author && <p style={{ fontSize: 12, color: C.textMuted, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 5 }}><Icon name="user" size={13} color={C.textMuted} />{r.source_author} · {r.source_type}</p>}
+          {r.source_author && <p style={{ fontSize: 12, color: C.textMuted, marginBottom: r.source_url ? 4 : 12, display: 'flex', alignItems: 'center', gap: 5 }}><Icon name="user" size={13} color={C.textMuted} />{r.source_author} · {r.source_type}</p>}
+          {r.source_url && <a href={r.source_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: C.green, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 5, textDecoration: 'none' }}><Icon name="link" size={13} color={C.green} />Ver fuente original</a>}
           <div style={{ display: 'flex', gap: 14, fontSize: 13, color: C.textSec, marginBottom: 14, flexWrap: 'wrap' }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}><Icon name="users" size={14} color={C.textMuted} />{r.servings} porciones</span>
             {total > 0 && <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}><Icon name="clock" size={14} color={C.textMuted} />{total} min</span>}
@@ -1226,7 +1227,7 @@ function FilterScreen({ filters, setFilters, onBack, customTags, onManageTags })
   )
 }
 
-const BLANK = { title: '', description: '', ingredients: [{ n: '', q: '', u: '' }], steps: [''], source_type: 'manual', source_author: '', servings: 2, prep_time: '', cook_time: '', is_simple: false, moment_tags: [], category_tags: [], audience_tags: ['todos'], health_tag: 'balanceado', other_tags: [], photo_url: null, notes: '' }
+const BLANK = { title: '', description: '', ingredients: [{ n: '', q: '', u: '' }], steps: [''], source_type: 'manual', source_author: '', source_url: '', servings: 2, prep_time: '', cook_time: '', is_simple: false, moment_tags: [], category_tags: [], audience_tags: ['todos'], health_tag: 'balanceado', other_tags: [], photo_url: null, notes: '' }
 
 function RecipeForm({ initial, onBack, onSave, onSaveLabel = 'Guardar', customTags = [], units = [] }) {
   const [flow, setFlow] = useState(initial ? 'form' : 'src')
@@ -1296,9 +1297,13 @@ function RecipeForm({ initial, onBack, onSave, onSaveLabel = 'Guardar', customTa
         <h2 style={{ fontSize: 20, fontWeight: 700, color: C.text, fontFamily: serif }}>Agregar receta</h2>
       </div>
       <div style={{ ...S.scroll, padding: '20px', background: C.bg }}>
-        <p style={{ fontSize: 14, color: C.textSec, marginBottom: 16, lineHeight: 1.6 }}>¿De dónde viene esta receta?</p>
-        {[{ id: 'photo', icon: 'camera', label: 'Foto de libro o pantalla', desc: 'Claude la extrae automáticamente' }, { id: 'manual', icon: 'pencil', label: 'Escribir manualmente', desc: 'Para recetas de memoria o simples' }, { id: 'instagram', icon: 'link', label: 'Instagram / TikTok', desc: 'Guarda autor y plataforma' }, { id: 'youtube', icon: 'link', label: 'YouTube', desc: 'Receta en video' }, { id: 'libro', icon: 'book', label: 'Libro o revista', desc: 'Foto de la página' }].map(o => (
-          <div key={o.id} onClick={() => { if (o.id === 'photo' || o.id === 'libro') { upd('source_type', o.id); fileRef.current?.click() } else { upd('source_type', o.id); setFlow('form') } }} style={{ background: C.surface, border: `0.5px solid ${C.border}`, borderRadius: 16, padding: '14px 16px', marginBottom: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 14 }}>
+        <p style={{ fontSize: 14, color: C.textSec, marginBottom: 4, lineHeight: 1.6 }}>¿Cómo quieres agregar la receta?</p>
+        <p style={{ fontSize: 12, color: C.textMuted, marginBottom: 16, lineHeight: 1.6 }}>💡 Para recetas de Instagram, TikTok o YouTube: toma screenshot y usa "Foto"</p>
+        {[
+          { id: 'photo', icon: 'camera', label: 'Foto', desc: 'Libro, revista, pantalla o screenshot de redes — Claude extrae todo' },
+          { id: 'manual', icon: 'pencil', label: 'Escribir manualmente', desc: 'Para recetas de memoria o dictadas' },
+        ].map(o => (
+          <div key={o.id} onClick={() => { if (o.id === 'photo') { upd('source_type', 'photo'); fileRef.current?.click() } else { upd('source_type', 'manual'); setFlow('form') } }} style={{ background: C.surface, border: `0.5px solid ${C.border}`, borderRadius: 16, padding: '14px 16px', marginBottom: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 14 }}>
             <div style={{ width: 42, height: 42, borderRadius: 12, background: C.greenBg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Icon name={o.icon} size={20} color={C.green} /></div>
             <div style={{ flex: 1 }}>
               <p style={{ fontWeight: 600, fontSize: 15, color: C.text, margin: 0, fontFamily: serif }}>{o.label}</p>
@@ -1342,7 +1347,9 @@ function RecipeForm({ initial, onBack, onSave, onSaveLabel = 'Guardar', customTa
           <span style={S.label}>Descripción breve</span>
           <input style={{ ...S.input, marginBottom: 12 }} type="text" value={f.description} onChange={e => upd('description', e.target.value)} placeholder="Ej. Proteína perfecta para la comida" />
           <span style={S.label}>Fuente / Autor</span>
-          <input style={{ ...S.input, marginBottom: 14 }} type="text" value={f.source_author} onChange={e => upd('source_author', e.target.value)} placeholder="@cuenta, Abuela Carmen, Libro..." />
+          <input style={{ ...S.input, marginBottom: 10 }} type="text" value={f.source_author} onChange={e => upd('source_author', e.target.value)} placeholder="@cuenta, Abuela Carmen, Nombre del libro..." />
+          <span style={S.label}>URL de referencia (opcional)</span>
+          <input style={{ ...S.input, marginBottom: 14 }} type="url" value={f.source_url || ''} onChange={e => upd('source_url', e.target.value)} placeholder="https://instagram.com/p/... o link de YouTube" />
           <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
             {[['servings', 'Porciones'], ['prep_time', 'Prep min'], ['cook_time', 'Cocción min']].map(([k, l]) => (
               <div key={k} style={{ flex: 1 }}><span style={S.label}>{l}</span><input style={S.input} type="number" min="0" value={f[k]} onChange={e => upd(k, parseInt(e.target.value) || '')} /></div>
